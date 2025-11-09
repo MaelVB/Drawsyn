@@ -2,14 +2,16 @@
   "name": "drawsyn",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@8.15.7",
   "workspaces": [
     "apps/server",
     "apps/web"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev --workspace @drawsyn/web\" \"npm run start:dev --workspace @drawsyn/server\"",
-    "build": "npm run build --workspaces",
-    "lint": "npm run lint --workspaces"
+    "start": "concurrently \"pnpm --filter @drawsyn/web dev\" \"pnpm --filter @drawsyn/server start:dev\"",
+    "dev": "pnpm run start",
+    "build": "pnpm -r run build",
+    "lint": "pnpm -r run lint"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

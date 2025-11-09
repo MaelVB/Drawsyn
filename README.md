@@ -5,16 +5,17 @@ Monorepo pour un prototype de jeu de dessin en temps réel façon Skribbl.io, co
 ## Structure
 
 - `apps/server` — API NestJS + passerelle WebSocket (Socket.IO) gérant les salons, manches et dessins.
-- `apps/web` — Frontend Next.js (App Router) utilisant Mantine pour l'UI, Zustand pour l'état client et Socket.IO pour le temps réel.
+- `apps/web` — Frontend Next.js (App Router) utilisant Mantine pour l'UI, Zustand pour l'état client et Socket.IO pour le temps
+réel.
 
 ## Démarrage rapide
 
 ```bash
-# Installer les dépendances (npm 9+)
-npm install
+# Installer les dépendances (pnpm 8+)
+pnpm install
 
 # Lancer les deux apps (Next.js + NestJS) en parallèle
-npm run dev
+pnpm run start
 ```
 
 Par défaut, le serveur écoute sur `http://localhost:3333` et le client web sur `http://localhost:3000`.
