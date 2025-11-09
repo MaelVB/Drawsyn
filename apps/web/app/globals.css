@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--mantine-font-family, system-ui);
+  background-color: var(--mantine-color-dark-7);
+  color: var(--mantine-color-white);
+}
+
+#__next {
+  height: 100%;
+}
