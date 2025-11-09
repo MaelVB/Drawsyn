@@ -107,12 +107,14 @@ export class GameService {
     const room = this.lobby.getRoom(roomId);
     if (!room) return undefined;
 
-    if (room.round) return room.round;
+    const currentRound = room.round;
+    const previousDrawerId = currentRound?.drawerId;
+    if (currentRound) return currentRound;
 
     const players = Object.values(room.players);
     if (players.length < 2) return undefined;
 
-    const nextDrawer = this.pickDrawer(players, room.round?.drawerId);
+    const nextDrawer = this.pickDrawer(players, previousDrawerId);
     players.forEach((p) => (p.isDrawing = false));
     nextDrawer.isDrawing = true;
 
