@@ -96,7 +96,15 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const connection = this.connections.get(client.id);
     if (!connection) return;
 
-    const result = this.game.submitGuess(connection.playerId, dto);
+    if (dto.roomId && dto.roomId !== connection.roomId) {
+      client.emit('room:error', { message: 'Invalid room' });
+      return;
+    }
+
+    const result = this.game.submitGuess(connection.playerId, {
+      ...dto,
+      roomId: connection.roomId
+    });
     if (!result.room) return;
 
     if (result.correct && result.word) {
