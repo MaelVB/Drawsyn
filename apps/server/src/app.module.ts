@@ -14,7 +14,8 @@ import { RedisModule } from './common/redis/redis.module';
       })
     }),
     RedisModule.forRoot({
-      url: process.env.REDIS_URL ?? 'redis://localhost:6379'
+      url: process.env.REDIS_URL ?? 'redis://localhost:6379',
+      optional: process.env.NODE_ENV !== 'production'
     }),
     GameModule
   ]
