@@ -1,11 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { randomUUID } from 'crypto';
 
 import { CreateRoomDto } from './dto/create-room.dto';
 import { GuessDto } from './dto/guess.dto';
-import { JoinRoomDto } from './dto/join-room.dto';
 import { LobbyService } from './lobby.service';
 import { PlayerState, RoomState } from './types/game-state';
+
+interface JoinContext {
+  roomId: string;
+  userId: string;
+  username: string;
+}
 
 export interface JoinRoomResult {
   room: RoomState;
@@ -27,23 +31,29 @@ export class GameService {
     return this.lobby.createRoom(dto);
   }
 
-  joinRoom(dto: JoinRoomDto): JoinRoomResult {
-    const room = this.lobby.getRoom(dto.roomId);
+  joinRoom(context: JoinContext): JoinRoomResult {
+    const room = this.lobby.getRoom(context.roomId);
     if (!room) {
       throw new Error('Room not found');
     }
 
-    if (Object.keys(room.players).length >= room.maxPlayers) {
+    const existing = room.players[context.userId];
+    if (!existing && Object.keys(room.players).length >= room.maxPlayers) {
       throw new Error('Room is full');
     }
-
-    const player: PlayerState = {
-      id: randomUUID(),
-      name: dto.name,
-      score: 0,
-      isDrawing: false,
-      connected: true
-    };
+    const player: PlayerState = existing
+      ? {
+          ...existing,
+          name: context.username,
+          connected: true
+        }
+      : {
+          id: context.userId,
+          name: context.username,
+          score: 0,
+          isDrawing: false,
+          connected: true
+        };
 
     room.players[player.id] = player;
     this.lobby.upsertRoom(room);

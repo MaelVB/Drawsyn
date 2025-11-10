@@ -1,5 +1,5 @@
-import { IsArray, IsNumber, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsArray, IsNumber, IsString, ValidateNested } from 'class-validator';
 
 class SegmentPointDto {
   @IsNumber()

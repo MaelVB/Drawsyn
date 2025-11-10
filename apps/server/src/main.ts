@@ -1,6 +1,6 @@
+import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { IoAdapter } from '@nestjs/platform-socket.io';
-import { ValidationPipe } from '@nestjs/common';
 
 import { AppModule } from './app.module';
 
