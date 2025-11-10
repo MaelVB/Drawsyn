@@ -16,6 +16,7 @@ import {
 import { IconInfoCircle } from '@tabler/icons-react';
 
 import { getSocket } from '@/lib/socket';
+import { useAuthStore } from '@/stores/auth-store';
 import { useGameStore } from '@/stores/game-store';
 
 interface GuessMessage {
@@ -27,29 +28,15 @@ interface RoundWordPayload {
   word: string;
 }
 
-function usePlayerName() {
-  const [name, setName] = useState<string | undefined>();
-
-  useEffect(() => {
-    const saved = localStorage.getItem('drawsyn:name');
-    if (saved) {
-      setName(saved);
-    }
-  }, []);
-
-  const update = (value: string) => {
-    localStorage.setItem('drawsyn:name', value);
-    setName(value);
-  };
-
-  return { name, setName: update };
-}
-
 export default function GameRoomPage() {
   const params = useParams<{ roomId: string }>();
   const router = useRouter();
   const roomId = params?.roomId;
-  const { name, setName } = usePlayerName();
+  const { user, hydrated } = useAuthStore((state) => ({
+    user: state.user,
+    hydrated: state.hydrated
+  }));
+  const clearAuth = useAuthStore((state) => state.clearAuth);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const currentStroke = useRef<{ x: number; y: number; t: number }[]>([]);
   const isMountedRef = useRef(false);
@@ -178,6 +165,12 @@ export default function GameRoomPage() {
       drawPoints(points, '#4dabf7');
     };
 
+    const handleAuthError = (payload: { message?: string }) => {
+      setError(payload.message ?? 'Authentification requise');
+      clearAuth();
+      router.replace('/');
+    };
+
     socket.on('room:joined', handleRoomJoined);
     socket.on('room:state', handleRoomState);
     socket.on('round:started', handleRoundStarted);
@@ -188,9 +181,10 @@ export default function GameRoomPage() {
     socket.on('room:error', handleRoomError);
     socket.on('room:closed', handleRoomClosed);
     socket.on('draw:segment', handleDrawSegment);
+    socket.on('auth:error', handleAuthError);
 
-    if (!isMountedRef.current && name) {
-      socket.emit('room:join', { roomId, name });
+    if (!isMountedRef.current && user) {
+      socket.emit('room:join', { roomId });
       isMountedRef.current = true;
     }
 
@@ -205,15 +199,16 @@ export default function GameRoomPage() {
       socket.off('room:error', handleRoomError);
       socket.off('room:closed', handleRoomClosed);
       socket.off('draw:segment', handleDrawSegment);
+      socket.off('auth:error', handleAuthError);
     };
-  }, [clearCanvas, drawPoints, name, roomId, router, setCurrentRoom, setPlayerId, setRound]);
+  }, [clearAuth, clearCanvas, drawPoints, roomId, router, setCurrentRoom, setPlayerId, setRound, user]);
 
   useEffect(() => {
-    if (name && roomId && !isMountedRef.current) {
-      getSocket().emit('room:join', { roomId, name });
+    if (user && roomId && !isMountedRef.current) {
+      getSocket().emit('room:join', { roomId });
       isMountedRef.current = true;
     }
-  }, [name, roomId]);
+  }, [roomId, user]);
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawer) return;
@@ -265,23 +260,18 @@ export default function GameRoomPage() {
     router.push('/');
   };
 
-  if (!roomId) {
+  useEffect(() => {
+    if (hydrated && !user) {
+      router.replace('/');
+    }
+  }, [hydrated, router, user]);
+
+  if (!roomId || !hydrated) {
     return null;
   }
 
-  if (!name) {
-    return (
-      <Stack maw={640} mx="auto" p="xl">
-        <Title order={2}>Choisissez un pseudo</Title>
-        <TextInput
-          placeholder="Votre pseudo"
-          onChange={(event) => setName(event.currentTarget.value)}
-        />
-        <Button onClick={() => name && getSocket().emit('room:join', { roomId, name })}>
-          Rejoindre la partie
-        </Button>
-      </Stack>
-    );
+  if (!user) {
+    return null;
   }
 
   return (

@@ -2,8 +2,9 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 
-import { GameModule } from './game/game.module';
+import { AuthModule } from './auth/auth.module';
 import { RedisModule } from './common/redis/redis.module';
+import { GameModule } from './game/game.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { RedisModule } from './common/redis/redis.module';
       url: process.env.REDIS_URL ?? 'redis://localhost:6379',
       optional: process.env.NODE_ENV !== 'production'
     }),
+    AuthModule,
     GameModule
   ]
 })

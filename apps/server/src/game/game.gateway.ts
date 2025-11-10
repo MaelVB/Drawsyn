@@ -1,3 +1,4 @@
+import { UsePipes, ValidationPipe } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -7,8 +8,9 @@ import {
   WebSocketGateway,
   WebSocketServer
 } from '@nestjs/websockets';
-import { UsePipes, ValidationPipe } from '@nestjs/common';
 import type { Server, Socket } from 'socket.io';
+
+import { AuthService, AuthenticatedUser } from '../auth/auth.service';
 
 import { CreateRoomDto } from './dto/create-room.dto';
 import { DrawSegmentDto } from './dto/draw-segment.dto';
@@ -17,8 +19,10 @@ import { JoinRoomDto } from './dto/join-room.dto';
 import { GameService } from './game.service';
 
 interface ConnectionState {
-  roomId: string;
-  playerId: string;
+  roomId?: string;
+  playerId?: string;
+  userId: string;
+  username: string;
 }
 
 @WebSocketGateway({ namespace: '/game', cors: { origin: true, credentials: true } })
@@ -29,23 +33,44 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private readonly connections = new Map<string, ConnectionState>();
 
-  constructor(private readonly game: GameService) {}
+  constructor(private readonly game: GameService, private readonly auth: AuthService) {}
 
-  handleConnection(client: Socket) {
+  async handleConnection(client: Socket) {
+    const user = await this.authenticate(client);
+    if (!user) {
+      client.emit('auth:error', { message: 'Authentification requise' });
+      client.disconnect(true);
+      return;
+    }
+
+    this.connections.set(client.id, {
+      userId: user.id,
+      username: user.username
+    });
+
     client.emit('room:list', this.game.listRooms());
   }
 
   handleDisconnect(client: Socket) {
     this.removeClientFromRoom(client);
+    this.connections.delete(client.id);
   }
 
   @SubscribeMessage('room:list')
   handleListRooms(@ConnectedSocket() client: Socket) {
+    if (!this.connections.has(client.id)) {
+      client.emit('auth:error', { message: 'Authentification requise' });
+      return;
+    }
     client.emit('room:list', this.game.listRooms());
   }
 
   @SubscribeMessage('room:create')
   handleCreateRoom(@ConnectedSocket() client: Socket, @MessageBody() dto: CreateRoomDto) {
+    if (!this.connections.has(client.id)) {
+      client.emit('auth:error', { message: 'Authentification requise' });
+      return;
+    }
     const room = this.game.createRoom(dto);
     client.emit('room:created', room);
     this.broadcastLobby();
@@ -53,9 +78,22 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('room:join')
   handleJoinRoom(@ConnectedSocket() client: Socket, @MessageBody() dto: JoinRoomDto) {
+    const connection = this.connections.get(client.id);
+    if (!connection) {
+      client.emit('auth:error', { message: 'Authentification requise' });
+      return;
+    }
     try {
-      const { room, player } = this.game.joinRoom(dto);
-      this.connections.set(client.id, { roomId: room.id, playerId: player.id });
+      const { room, player } = this.game.joinRoom({
+        roomId: dto.roomId,
+        userId: connection.userId,
+        username: connection.username
+      });
+      this.connections.set(client.id, {
+        ...connection,
+        roomId: room.id,
+        playerId: player.id
+      });
       client.join(room.id);
       client.join(player.id);
       client.emit('room:joined', { room, playerId: player.id });
@@ -85,7 +123,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('draw:segment')
   handleDraw(@ConnectedSocket() client: Socket, @MessageBody() dto: DrawSegmentDto) {
     const connection = this.connections.get(client.id);
-    if (!connection) return;
+    if (!connection || !connection.playerId || !connection.roomId) return;
     if (!this.game.canDraw(connection.playerId, connection.roomId)) return;
 
     client.to(connection.roomId).emit('draw:segment', dto.points);
@@ -94,7 +132,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('guess:submit')
   handleGuess(@ConnectedSocket() client: Socket, @MessageBody() dto: GuessDto) {
     const connection = this.connections.get(client.id);
-    if (!connection) return;
+    if (!connection || !connection.playerId || !connection.roomId) return;
 
     if (dto.roomId && dto.roomId !== connection.roomId) {
       client.emit('room:error', { message: 'Invalid room' });
@@ -137,12 +175,16 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private removeClientFromRoom(client: Socket) {
     const connection = this.connections.get(client.id);
-    if (!connection) return;
+    if (!connection?.roomId || !connection.playerId) return;
 
     client.leave(connection.roomId);
     client.leave(connection.playerId);
     const room = this.game.leaveRoom(connection.roomId, connection.playerId);
-    this.connections.delete(client.id);
+    this.connections.set(client.id, {
+      ...connection,
+      roomId: undefined,
+      playerId: undefined
+    });
 
     if (room) {
       this.emitRoomState(room.id);
@@ -173,5 +215,24 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (room) {
       this.server.to(roomId).emit('room:state', room);
     }
+  }
+
+  private async authenticate(client: Socket): Promise<AuthenticatedUser | null> {
+    const token = this.extractToken(client);
+    return this.auth.verifyToken(token);
+  }
+
+  private extractToken(client: Socket): string | undefined {
+    const auth = client.handshake.auth as { token?: string } | undefined;
+    if (auth?.token) {
+      return String(auth.token);
+    }
+
+    const header = client.handshake.headers.authorization;
+    if (typeof header === 'string' && header.startsWith('Bearer ')) {
+      return header.slice(7);
+    }
+
+    return undefined;
   }
 }
