@@ -13,6 +13,7 @@ import type { Server, Socket } from 'socket.io';
 import { AuthService, AuthenticatedUser } from '../auth/auth.service';
 
 import { CreateRoomDto } from './dto/create-room.dto';
+import { UpdateRoomSettingsDto } from './dto/update-room-settings.dto';
 import { DrawSegmentDto } from './dto/draw-segment.dto';
 import { GuessDto } from './dto/guess.dto';
 import { JoinRoomDto } from './dto/join-room.dto';
@@ -116,7 +117,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.emitRoomState(room.id);
       this.broadcastLobby();
 
-      const round = this.game.ensureRound(room.id);
+      const round = room.round;
       if (round) {
         console.log('[WebSocket] 🎨 Round en cours, dessinateur:', round.drawerId);
         this.server.to(room.id).emit('round:started', {
@@ -129,6 +130,49 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     } catch (error) {
       console.error('[WebSocket] ❌ Erreur lors du join:', (error as Error).message);
+      client.emit('room:error', { message: (error as Error).message });
+    }
+  }
+
+  @SubscribeMessage('room:update')
+  handleUpdateRoom(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() dto: UpdateRoomSettingsDto
+  ) {
+    const connection = this.connections.get(client.id);
+    if (!connection || !connection.roomId) {
+      client.emit('auth:error', { message: 'Authentification requise' });
+      return;
+    }
+    try {
+      const room = this.game.updateRoomSettings(connection.roomId, dto);
+      this.emitRoomState(room.id);
+      this.broadcastLobby();
+    } catch (error) {
+      client.emit('room:error', { message: (error as Error).message });
+    }
+  }
+
+  @SubscribeMessage('game:start')
+  handleStartGame(@ConnectedSocket() client: Socket) {
+    const connection = this.connections.get(client.id);
+    if (!connection || !connection.roomId) {
+      client.emit('auth:error', { message: 'Authentification requise' });
+      return;
+    }
+    try {
+      const started = this.game.startGame(connection.roomId);
+      const room = this.game.listRooms().find((r) => r.id === connection.roomId);
+      if (started && room) {
+        this.server.to(room.id).emit('round:started', {
+          drawerId: started.drawerId,
+          roundEndsAt: started.roundEndsAt,
+          revealed: started.revealed
+        });
+        this.server.to(started.drawerId).emit('round:word', { word: started.word });
+        this.emitRoomState(room.id);
+      }
+    } catch (error) {
       client.emit('room:error', { message: (error as Error).message });
     }
   }

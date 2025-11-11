@@ -22,6 +22,7 @@ import {
   Divider
 } from '@mantine/core';
 import { IconInfoCircle, IconBrush, IconPencil, IconBucket } from '@tabler/icons-react';
+import LobbySettings from '@/components/LobbySettings';
 
 import { getSocket } from '@/lib/socket';
 import { register, login } from '@/lib/api';
@@ -449,7 +450,7 @@ export default function GameRoomPage() {
           setAuthLoading(false);
           return;
         }
-        const response = await register({ pseudo: authPseudo, email: authEmail, password: authPassword });
+  const response = await register(authPseudo, authEmail, authPassword);
         console.log('[GameRoom] ✅ Compte créé:', authPseudo);
         setAuth(response);
         setShowAuthModal(false);
@@ -459,7 +460,7 @@ export default function GameRoomPage() {
           setAuthLoading(false);
           return;
         }
-        const response = await login({ identifier: authEmail, password: authPassword });
+  const response = await login(authEmail, authPassword);
         console.log('[GameRoom] ✅ Connecté:', response.user.pseudo);
         setAuth(response);
         setShowAuthModal(false);
@@ -587,7 +588,7 @@ export default function GameRoomPage() {
       <Group align="flex-start" justify="center" gap="lg" wrap="nowrap">
         {/* Colonne de gauche - Joueurs */}
         <Card withBorder padding="md" radius="md" style={{ width: 250, flexShrink: 0 }}>
-          <Title order={4} align="center">Joueurs</Title>
+          <Title order={4} ta="center">Joueurs</Title>
           <Divider my="md" />
           <Stack gap={8} mt="sm">
             {currentRoom &&
@@ -608,104 +609,110 @@ export default function GameRoomPage() {
           </Stack>
         </Card>
 
-        {/* Centre - Zone de dessin */}
+        {/* Centre - Zone dynamique: Canvas ou Lobby Settings */}
         <Stack gap="sm" style={{ flexShrink: 0 }}>
-          <Card withBorder padding="sm" radius="md">
-            {(word || round?.revealed) && (
-              <Text size="24px" fw={700} ta="center" mb="lg" style={{ letterSpacing: "0.2em" }}>
-                {word ? `${word}` : round?.revealed}
-              </Text>
-            )}
-            <canvas
-              ref={canvasRef}
-              width={720}
-              height={480}
-              style={{ touchAction: 'none', borderRadius: 12, cursor: brushType === 'bucket' ? 'pointer' : 'crosshair', backgroundColor: 'white' }}
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onPointerLeave={handlePointerUp}
-              onPointerCancel={handlePointerUp}
-            />
-          </Card>
-          
-          {/* Panneau d'outils */}
-          {isDrawer && (
-            <Card withBorder padding="md" radius="md" style={{ width: 720 }}>
-              <Group justify="space-between" align="flex-start">
-                {/* Couleurs */}
-                <Box>
-                  <Text size="sm" fw={500} mb="xs">Couleur</Text>
-                  <ColorPicker 
-                    value={brushColor} 
-                    onChange={setBrushColor}
-                    format="hex"
-                    swatches={['#000000', '#FFFFFF', '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF', '#FFA500', '#800080']}
-                  />
-                </Box>
-                
-                {/* Taille du pinceau */}
-                <Box style={{ width: 200 }}>
-                  <Text size="sm" fw={500} mb="xs">Taille: {brushSize}px</Text>
-                  <Slider 
-                    value={brushSize}
-                    onChange={setBrushSize}
-                    min={1}
-                    max={24}
-                    step={1}
-                    marks={[
-                      { value: 1, label: '1' },
-                      { value: 12, label: '12' },
-                      { value: 24, label: '24' }
-                    ]}
-                  />
-                </Box>
-                
-                {/* Type de pinceau */}
-                <Box>
-                  <Text size="sm" fw={500} mb="xs">Type d'outil</Text>
-                  <SegmentedControl
-                    value={brushType}
-                    onChange={(value) => setBrushType(value as 'brush' | 'pencil' | 'bucket')}
-                    data={[
-                      { 
-                        value: 'brush', 
-                        label: (
-                          <Group gap={4} justify="center">
-                            <IconBrush size={16} />
-                            <span>Pinceau</span>
-                          </Group>
-                        )
-                      },
-                      { 
-                        value: 'pencil', 
-                        label: (
-                          <Group gap={4} justify="center">
-                            <IconPencil size={16} />
-                            <span>Crayon</span>
-                          </Group>
-                        )
-                      },
-                      { 
-                        value: 'bucket', 
-                        label: (
-                          <Group gap={4} justify="center">
-                            <IconBucket size={16} />
-                            <span>Seau</span>
-                          </Group>
-                        )
-                      }
-                    ]}
-                  />
-                </Box>
-              </Group>
-            </Card>
+          {round ? (
+            <>
+              <Card withBorder padding="md" radius="md">
+                <Group justify="space-between" align="flex-start" p="lg" >
+                  <Text>Manche en cours</Text>
+                  {(word || round?.revealed) && (
+                    <Text size="24px" fw={700} ta="center" style={{ letterSpacing: "0.2em" }}>
+                      {word ? `${word}` : round?.revealed}
+                    </Text>
+                  )}
+                  <Text>{Math.round(((round.roundEndsAt - Date.now()) / 1000))}s</Text>
+                </Group>
+                <Divider my="md" />
+                <canvas
+                  ref={canvasRef}
+                  width={720}
+                  height={480}
+                  style={{ touchAction: 'none', borderRadius: 12, cursor: brushType === 'bucket' ? 'pointer' : 'crosshair', backgroundColor: 'white' }}
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  onPointerLeave={handlePointerUp}
+                  onPointerCancel={handlePointerUp}
+                />
+              </Card>
+              {isDrawer && (
+                <Card withBorder padding="md" radius="md" style={{ width: 720 }}>
+                  <Group justify="space-between" align="flex-start">
+                    <Box>
+                      <Text size="sm" fw={500} mb="xs">Couleur</Text>
+                      <ColorPicker 
+                        value={brushColor} 
+                        onChange={setBrushColor}
+                        format="hex"
+                        swatches={['#000000', '#FFFFFF', '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF', '#FFA500', '#800080']}
+                      />
+                    </Box>
+                    <Box style={{ width: 200 }}>
+                      <Text size="sm" fw={500} mb="xs">Taille: {brushSize}px</Text>
+                      <Slider 
+                        value={brushSize}
+                        onChange={setBrushSize}
+                        min={1}
+                        max={24}
+                        step={1}
+                        marks={[
+                          { value: 1, label: '1' },
+                          { value: 12, label: '12' },
+                          { value: 24, label: '24' }
+                        ]}
+                      />
+                    </Box>
+                    <Box>
+                      <Text size="sm" fw={500} mb="xs">Type d'outil</Text>
+                      <SegmentedControl
+                        value={brushType}
+                        onChange={(value) => setBrushType(value as 'brush' | 'pencil' | 'bucket')}
+                        data={[
+                          { 
+                            value: 'brush', 
+                            label: (
+                              <Group gap={4} justify="center">
+                                <IconBrush size={16} />
+                                <span>Pinceau</span>
+                              </Group>
+                            )
+                          },
+                          { 
+                            value: 'pencil', 
+                            label: (
+                              <Group gap={4} justify="center">
+                                <IconPencil size={16} />
+                                <span>Crayon</span>
+                              </Group>
+                            )
+                          },
+                          { 
+                            value: 'bucket', 
+                            label: (
+                              <Group gap={4} justify="center">
+                                <IconBucket size={16} />
+                                <span>Seau</span>
+                              </Group>
+                            )
+                          }
+                        ]}
+                      />
+                    </Box>
+                  </Group>
+                </Card>
+              )}
+            </>
+          ) : (
+            currentRoom && currentRoom.status === 'lobby' && (
+              <LobbySettings room={currentRoom} />
+            )
           )}
         </Stack>
 
         {/* Colonne de droite - Discussion */}
         <Card withBorder padding="md" radius="md" style={{ width: 300, flexShrink: 0 }}>
-          <Title order={4} align="center">Propositions</Title>
+          <Title order={4} ta="center">{round ? 'Propositions' : 'Lobby & Chat'}</Title>
           <Divider my="md" />
           <Stack gap={6} mt="sm" style={{ maxHeight: 400, overflowY: 'auto' }}>
             {guesses.map((message, index) => (
@@ -726,17 +733,17 @@ export default function GameRoomPage() {
             <TextInput
               value={guessText}
               onChange={(event) => setGuessText(event.currentTarget.value)}
-              placeholder="Votre proposition"
+              placeholder={round ? 'Votre proposition' : 'Message (la partie n\'a pas commencé)'}
               flex={1}
-              disabled={isDrawer}
+              disabled={isDrawer || !round}
               onKeyDown={(event) => {
-                if (event.key === 'Enter') {
+                if (event.key === 'Enter' && round) {
                   event.preventDefault();
                   handleSubmitGuess();
                 }
               }}
             />
-            <Button onClick={handleSubmitGuess} disabled={isDrawer || !guessText.trim()}>
+            <Button onClick={handleSubmitGuess} disabled={isDrawer || !guessText.trim() || !round}>
               Envoyer
             </Button>
           </Group>

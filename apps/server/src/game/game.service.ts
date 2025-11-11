@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { CreateRoomDto } from './dto/create-room.dto';
+import { UpdateRoomSettingsDto } from './dto/update-room-settings.dto';
 import { GuessDto } from './dto/guess.dto';
 import { LobbyService } from './lobby.service';
 import { PlayerState, RoomState } from './types/game-state';
@@ -29,6 +30,29 @@ export class GameService {
 
   createRoom(dto: CreateRoomDto): RoomState {
     return this.lobby.createRoom(dto);
+  }
+
+  updateRoomSettings(roomId: string, dto: UpdateRoomSettingsDto): RoomState {
+    const room = this.lobby.getRoom(roomId);
+    if (!room) {
+      this.logger.warn(`updateRoomSettings: Room ${roomId} not found`);
+      throw new Error('Room not found');
+    }
+    if (room.status !== 'lobby') {
+      this.logger.warn(`updateRoomSettings: Cannot update settings while game running (${room.status})`);
+      throw new Error('Impossible de modifier les paramètres pendant une manche');
+    }
+
+    // Appliquer uniquement si présents
+    if (typeof dto.maxPlayers === 'number') {
+      room.maxPlayers = dto.maxPlayers;
+    }
+    if (typeof dto.roundDuration === 'number') {
+      room.roundDuration = dto.roundDuration;
+    }
+    room.lastActivityAt = Date.now();
+    this.lobby.upsertRoom(room);
+    return room;
   }
 
   joinRoom(context: JoinContext): JoinRoomResult {
@@ -177,6 +201,15 @@ export class GameService {
     room.lastActivityAt = Date.now();
     this.lobby.upsertRoom(room);
     return round;
+  }
+
+  startGame(roomId: string) {
+    const room = this.lobby.getRoom(roomId);
+    if (!room) throw new Error('Room not found');
+    if (room.status !== 'lobby') {
+      return room.round; // Déjà en cours
+    }
+    return this.ensureRound(roomId);
   }
 
   private pickDrawer(players: PlayerState[], previousDrawerId?: string) {

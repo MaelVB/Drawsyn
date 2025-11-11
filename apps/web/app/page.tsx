@@ -280,7 +280,7 @@ export default function LobbyPage() {
                 min={2}
                 max={12}
                 value={maxPlayers}
-                onChange={setMaxPlayers}
+                onChange={(v) => setMaxPlayers(typeof v === 'number' ? v : '')}
                 disabled={!user}
               />
               <NumberInput
@@ -288,7 +288,7 @@ export default function LobbyPage() {
                 min={30}
                 max={240}
                 value={roundDuration}
-                onChange={setRoundDuration}
+                onChange={(v) => setRoundDuration(typeof v === 'number' ? v : '')}
                 disabled={!user}
               />
             </Group>
