@@ -19,9 +19,10 @@ import {
   Modal,
   PasswordInput,
   Tabs,
-  Divider
+  Divider,
+  Flex
 } from '@mantine/core';
-import { IconInfoCircle, IconBrush, IconPencil, IconBucket } from '@tabler/icons-react';
+import { IconInfoCircle, IconBrush, IconEraser, IconBucket } from '@tabler/icons-react';
 import LobbySettings from '@/components/LobbySettings';
 
 import { getSocket } from '@/lib/socket';
@@ -72,7 +73,7 @@ export default function GameRoomPage() {
   // États pour les outils de dessin
   const [brushColor, setBrushColor] = useState('#000000');
   const [brushSize, setBrushSize] = useState(4);
-  const [brushType, setBrushType] = useState<'brush' | 'pencil' | 'bucket'>('brush');
+  const [brushType, setBrushType] = useState<'brush' | 'eraser' | 'bucket'>('brush');
 
   // États pour la modal d'authentification
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -94,27 +95,27 @@ export default function GameRoomPage() {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }, []);
 
-  const drawPoints = useCallback((points: { x: number; y: number }[], color: string, size: number = 4, type: 'brush' | 'pencil' | 'bucket' = 'brush') => {
+  const drawPoints = useCallback((points: { x: number; y: number }[], color: string, size: number = 4, type: 'brush' | 'eraser' | 'bucket' = 'brush') => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    ctx.strokeStyle = color;
+    ctx.save();
+    // Paramètres communs
     ctx.lineWidth = size;
-    
-    if (type === 'pencil') {
-      // Crayon pixelisé - pas d'antialiasing
-      ctx.imageSmoothingEnabled = false;
-      ctx.lineJoin = 'miter';
-      ctx.lineCap = 'square';
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    if (type === 'eraser') {
+      // Gomme: efface au lieu de dessiner
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.strokeStyle = 'rgba(0,0,0,1)';
     } else {
-      // Pinceau classique - lisse
-      ctx.imageSmoothingEnabled = true;
-      ctx.lineJoin = 'round';
-      ctx.lineCap = 'round';
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = color;
     }
-    
+
     ctx.beginPath();
     points.forEach((point, index) => {
       if (index === 0) {
@@ -124,6 +125,7 @@ export default function GameRoomPage() {
       }
     });
     ctx.stroke();
+    ctx.restore();
   }, []);
 
   useEffect(() => {
@@ -245,7 +247,7 @@ export default function GameRoomPage() {
       router.replace('/');
     };
 
-    const handleDrawSegment = (payload: { points: { x: number; y: number }[], color?: string, size?: number, type?: 'brush' | 'pencil' | 'bucket' }) => {
+    const handleDrawSegment = (payload: { points: { x: number; y: number }[], color?: string, size?: number, type?: 'brush' | 'eraser' | 'bucket' }) => {
       drawPoints(payload.points, payload.color || '#4dabf7', payload.size || 4, payload.type || 'brush');
     };
     
@@ -368,8 +370,10 @@ export default function GameRoomPage() {
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawer) return;
     const rect = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
+    const scaleX = event.currentTarget.width / rect.width;
+    const scaleY = event.currentTarget.height / rect.height;
+    const x = (event.clientX - rect.left) * scaleX;
+    const y = (event.clientY - rect.top) * scaleY;
     
     // Gérer le seau (remplissage)
     if (brushType === 'bucket') {
@@ -393,10 +397,12 @@ export default function GameRoomPage() {
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDrawer || currentStroke.current.length === 0 || brushType === 'bucket') return;
+  if (!isDrawer || currentStroke.current.length === 0 || brushType === 'bucket') return;
     const rect = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
+    const scaleX = event.currentTarget.width / rect.width;
+    const scaleY = event.currentTarget.height / rect.height;
+    const x = (event.clientX - rect.left) * scaleX;
+    const y = (event.clientY - rect.top) * scaleY;
     const point = { x, y, t: Date.now() };
     const updated = [...currentStroke.current, point];
     currentStroke.current = updated;
@@ -594,7 +600,7 @@ export default function GameRoomPage() {
         <div>
           <Title order={2}>{currentRoom?.name ?? 'Salle de jeu'}</Title>
           <Text c="dimmed">
-            {currentRoom?.currentRound === currentRoom?.totalRounds && !round
+            {currentRoom?.currentRound >= currentRoom?.totalRounds && !round
               ? 'Jeu terminé'
               : round
                 ? 'Manche en cours'
@@ -641,7 +647,7 @@ export default function GameRoomPage() {
           {round ? (
             <>
               <Card withBorder padding="md" radius="md">
-                <Group justify="space-between" align="flex-start" p="lg" >
+                <Group justify="space-between" align="flex-start">
                   <Text>
                     {`Round ${currentRoom.currentRound}/${currentRoom.totalRounds}`}
                   </Text>
@@ -666,8 +672,8 @@ export default function GameRoomPage() {
                 />
               </Card>
               {isDrawer && (
-                <Card withBorder padding="md" radius="md" style={{ width: 720 }}>
-                  <Group justify="space-between" align="flex-start">
+                <Card withBorder padding="md" radius="md">
+                  <Flex justify="center" gap="xl">
                     <Box>
                       <Text size="sm" fw={500} mb="xs">Couleur</Text>
                       <ColorPicker 
@@ -677,26 +683,11 @@ export default function GameRoomPage() {
                         swatches={['#000000', '#FFFFFF', '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF', '#FFA500', '#800080']}
                       />
                     </Box>
-                    <Box style={{ width: 200 }}>
-                      <Text size="sm" fw={500} mb="xs">Taille: {brushSize}px</Text>
-                      <Slider 
-                        value={brushSize}
-                        onChange={setBrushSize}
-                        min={1}
-                        max={24}
-                        step={1}
-                        marks={[
-                          { value: 1, label: '1' },
-                          { value: 12, label: '12' },
-                          { value: 24, label: '24' }
-                        ]}
-                      />
-                    </Box>
                     <Box>
                       <Text size="sm" fw={500} mb="xs">Type d'outil</Text>
                       <SegmentedControl
                         value={brushType}
-                        onChange={(value) => setBrushType(value as 'brush' | 'pencil' | 'bucket')}
+                        onChange={(value) => setBrushType(value as 'brush' | 'eraser' | 'bucket')}
                         data={[
                           { 
                             value: 'brush', 
@@ -708,11 +699,11 @@ export default function GameRoomPage() {
                             )
                           },
                           { 
-                            value: 'pencil', 
+                            value: 'eraser', 
                             label: (
                               <Group gap={4} justify="center">
-                                <IconPencil size={16} />
-                                <span>Crayon</span>
+                                <IconEraser size={16} />
+                                <span>Gomme</span>
                               </Group>
                             )
                           },
@@ -728,7 +719,24 @@ export default function GameRoomPage() {
                         ]}
                       />
                     </Box>
-                  </Group>
+                    <Box style={{ width: 200 }}>
+                      <Text size="sm" fw={500} mb="xs">Taille: {brushSize}px</Text>
+                      <Slider 
+                        value={brushSize}
+                        onChange={setBrushSize}
+                        min={1}
+                        max={24}
+                        step={1}
+                        marks={[
+                          { value: 1, label: '1' },
+                          { value: 6, label: '6' },
+                          { value: 12, label: '12' },
+                          { value: 18, label: '18' },
+                          { value: 24, label: '24' }
+                        ]}
+                      />
+                    </Box>
+                  </Flex>
                 </Card>
               )}
             </>

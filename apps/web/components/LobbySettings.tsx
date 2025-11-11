@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from 'react';
-import { Button, Card, Group, NumberInput, Stack, Text, Title, Alert } from '@mantine/core';
+import { Button, Card, Group, NumberInput, Stack, Text, Title, Alert, Divider } from '@mantine/core';
 import { IconInfoCircle } from '@tabler/icons-react';
 
 import { getSocket } from '@/lib/socket';
@@ -51,9 +51,10 @@ export default function LobbySettings({ room }: Props) {
   };
 
   return (
-    <Card withBorder padding="lg" radius="md" style={{ width: 720 }}>
+    <Card withBorder padding="md" radius="md" style={{ width: 720 }}>
+      <Title order={4} ta="center">Paramètres de la partie</Title>
+      <Divider my="md" />
       <Stack gap="md">
-        <Title order={4}>Paramètres de la partie</Title>
         <Group grow>
           <NumberInput
             label="Joueurs maximum"
