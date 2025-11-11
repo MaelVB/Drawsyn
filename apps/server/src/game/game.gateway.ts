@@ -13,10 +13,10 @@ import type { Server, Socket } from 'socket.io';
 import { AuthService, AuthenticatedUser } from '../auth/auth.service';
 
 import { CreateRoomDto } from './dto/create-room.dto';
-import { UpdateRoomSettingsDto } from './dto/update-room-settings.dto';
 import { DrawSegmentDto } from './dto/draw-segment.dto';
 import { GuessDto } from './dto/guess.dto';
 import { JoinRoomDto } from './dto/join-room.dto';
+import { UpdateRoomSettingsDto } from './dto/update-room-settings.dto';
 import { GameService } from './game.service';
 
 interface ConnectionState {
@@ -37,6 +37,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(private readonly game: GameService, private readonly auth: AuthService) {}
 
   async handleConnection(client: Socket) {
+  // S'assurer que le GameService peut émettre des events
+  this.game.attachServer(this.server);
     console.log('[WebSocket] ========================================');
     console.log('[WebSocket] 🔌 Nouvelle connexion:', client.id);
     console.log('[WebSocket] 📦 handshake.auth:', JSON.stringify(client.handshake.auth));
@@ -161,17 +163,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
     try {
-      const started = this.game.startGame(connection.roomId);
-      const room = this.game.listRooms().find((r) => r.id === connection.roomId);
-      if (started && room) {
-        this.server.to(room.id).emit('round:started', {
-          drawerId: started.drawerId,
-          roundEndsAt: started.roundEndsAt,
-          revealed: started.revealed
-        });
-        this.server.to(started.drawerId).emit('round:word', { word: started.word });
-        this.emitRoomState(room.id);
-      }
+      this.game.startGame(connection.roomId);
+      this.emitRoomState(connection.roomId);
     } catch (error) {
       client.emit('room:error', { message: (error as Error).message });
     }
@@ -226,26 +219,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
     if (!result.room) return;
 
-    if (result.correct && result.word) {
-      this.server.to(connection.roomId).emit('round:ended', {
-        winnerId: result.playerId,
-        word: result.word,
-        room: result.room,
-        scores: Object.values(result.room.players)
-      });
-      this.broadcastLobby();
+    if (result.correct) {
+      // Les events de fin ou tick sont gérés par GameService; ici on notifie juste la proposition correcte est déjà émise par le service
       this.emitRoomState(connection.roomId);
-
-      const nextRound = this.game.ensureRound(connection.roomId);
-      if (nextRound) {
-        this.server.to(connection.roomId).emit('round:started', {
-          drawerId: nextRound.drawerId,
-          roundEndsAt: nextRound.roundEndsAt,
-          revealed: nextRound.revealed
-        });
-        this.server.to(nextRound.drawerId).emit('round:word', { word: nextRound.word });
-        this.emitRoomState(connection.roomId);
-      }
     } else {
       client.to(connection.roomId).emit('guess:submitted', {
         playerId: connection.playerId,
@@ -276,12 +252,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       console.log('[WebSocket] ✅ Room toujours active:', room.name, '- Joueurs:', Object.values(room.players).map(p => `${p.name}(${p.connected ? 'connecté' : 'déconnecté'})`).join(', '));
       this.emitRoomState(room.id);
       if (room.round) {
-        this.server.to(room.id).emit('round:started', {
-          drawerId: room.round.drawerId,
-          roundEndsAt: room.round.roundEndsAt,
-          revealed: room.round.revealed
-        });
-        this.server.to(room.round.drawerId).emit('round:word', { word: room.round.word });
+        // Le GameService gère déjà l'émission; ne pas réémettre pour éviter doublons
       } else {
         console.log('[WebSocket] ❌ Round annulé car le dessinateur est parti');
         this.server.to(room.id).emit('round:cancelled');

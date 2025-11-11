@@ -8,6 +8,7 @@ export interface CreateRoomOptions {
   name: string;
   maxPlayers: number;
   roundDuration: number;
+  totalRounds: number;
 }
 
 @Injectable()
@@ -33,7 +34,11 @@ export class LobbyService implements OnModuleInit {
       players: {},
       status: 'lobby',
       createdAt: now,
-      lastActivityAt: now
+      lastActivityAt: now,
+      totalRounds: options.totalRounds,
+      currentRound: 0,
+      drawerOrder: [],
+      currentDrawerIndex: -1
     };
 
     this.rooms.set(id, room);

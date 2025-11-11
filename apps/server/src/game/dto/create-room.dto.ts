@@ -1,4 +1,4 @@
-import { IsInt, IsString, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class CreateRoomDto {
   @IsString()
@@ -13,4 +13,11 @@ export class CreateRoomDto {
   @Min(30)
   @Max(240)
   roundDuration = 90;
+
+  // Nombre total de rounds (une fois que chaque joueur a dessiné = 1 round)
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  totalRounds: number = 3;
 }

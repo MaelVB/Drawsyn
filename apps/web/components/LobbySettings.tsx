@@ -14,6 +14,7 @@ interface Props {
 export default function LobbySettings({ room }: Props) {
   const [maxPlayers, setMaxPlayers] = useState<number | ''>(room.maxPlayers);
   const [roundDuration, setRoundDuration] = useState<number | ''>(room.roundDuration);
+  const [totalRounds, setTotalRounds] = useState<number | ''>(room.totalRounds ?? 3);
   const [error, setError] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
 
@@ -25,16 +26,18 @@ export default function LobbySettings({ room }: Props) {
   const hasChanges = useMemo(() => {
     return (
       (typeof maxPlayers === 'number' && maxPlayers !== room.maxPlayers) ||
-      (typeof roundDuration === 'number' && roundDuration !== room.roundDuration)
+      (typeof roundDuration === 'number' && roundDuration !== room.roundDuration) ||
+      (typeof totalRounds === 'number' && totalRounds !== (room.totalRounds ?? 3))
     );
-  }, [maxPlayers, roundDuration, room.maxPlayers, room.roundDuration]);
+  }, [maxPlayers, roundDuration, totalRounds, room.maxPlayers, room.roundDuration, room.totalRounds]);
 
   const handleSave = () => {
     setError(undefined);
     setLoading(true);
     const payload: any = {};
     if (typeof maxPlayers === 'number') payload.maxPlayers = maxPlayers;
-    if (typeof roundDuration === 'number') payload.roundDuration = roundDuration;
+  if (typeof roundDuration === 'number') payload.roundDuration = roundDuration;
+  if (typeof totalRounds === 'number') payload.totalRounds = totalRounds;
 
     getSocket().emit('room:update', payload);
     setTimeout(() => setLoading(false), 300); // optimiste
@@ -65,6 +68,13 @@ export default function LobbySettings({ room }: Props) {
             max={240}
             value={roundDuration}
             onChange={(v) => setRoundDuration(typeof v === 'number' ? v : '')}
+          />
+          <NumberInput
+            label="Rounds"
+            min={1}
+            max={20}
+            value={totalRounds}
+            onChange={(v) => setTotalRounds(typeof v === 'number' ? v : '')}
           />
         </Group>
         {error && (

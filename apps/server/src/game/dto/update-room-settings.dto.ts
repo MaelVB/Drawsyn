@@ -12,4 +12,10 @@ export class UpdateRoomSettingsDto {
   @Min(30)
   @Max(240)
   roundDuration?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  totalRounds?: number;
 }

@@ -18,12 +18,15 @@ export interface RoomState {
   players: Record<string, PlayerState>;
   status: 'lobby' | 'running' | 'ended';
   createdAt: number;
+  totalRounds?: number;
+  currentRound?: number;
 }
 
 export interface RoundState {
   drawerId: string;
   roundEndsAt: number;
   revealed: string;
+  guessedPlayerIds?: string[];
 }
 
 interface GameStore {
@@ -35,6 +38,7 @@ interface GameStore {
   setCurrentRoom: (room?: RoomState) => void;
   setPlayerId: (playerId?: string) => void;
   setRound: (round?: RoundState) => void;
+  updateRoundRemaining: (remaining: number) => void;
 }
 
 export const useGameStore = create<GameStore>((set) => ({
@@ -43,4 +47,6 @@ export const useGameStore = create<GameStore>((set) => ({
   setCurrentRoom: (room) => set({ currentRoom: room }),
   setPlayerId: (playerId) => set({ playerId }),
   setRound: (round) => set({ round })
+  ,
+  updateRoundRemaining: (remaining) => set((state) => state.round ? ({ round: { ...state.round, roundEndsAt: Date.now() + remaining * 1000 } }) : {})
 }));

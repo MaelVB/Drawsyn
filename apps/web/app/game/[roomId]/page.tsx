@@ -52,14 +52,15 @@ export default function GameRoomPage() {
   const hasJoinedRoomRef = useRef(false);
   const [isJoiningRoom, setIsJoiningRoom] = useState(false);
 
-  const { currentRoom, playerId, round, setCurrentRoom, setPlayerId, setRound } = useGameStore(
+  const { currentRoom, playerId, round, setCurrentRoom, setPlayerId, setRound, updateRoundRemaining } = useGameStore(
     (state) => ({
       currentRoom: state.currentRoom,
       playerId: state.playerId,
       round: state.round,
       setCurrentRoom: state.setCurrentRoom,
       setPlayerId: state.setPlayerId,
-      setRound: state.setRound
+      setRound: state.setRound,
+      updateRoundRemaining: state.updateRoundRemaining
     })
   );
 
@@ -182,14 +183,30 @@ export default function GameRoomPage() {
       if (payload.room) {
         setCurrentRoom(payload.room);
       }
+      if (payload.reason === 'all-guessed' || payload.word) {
+        setGuesses((messages) => [
+          ...messages,
+          {
+            playerId: 'system',
+            text: `Mot: ${payload.word} — fin de manche (${payload.reason === 'timeout' ? 'temps écoulé' : 'tout le monde a trouvé'})`
+          }
+        ]);
+      }
+      clearCanvas();
+    };
+
+    const handleTimerTick = (payload: { remaining: number }) => {
+      updateRoundRemaining(payload.remaining);
+    };
+
+    const handleGuessCorrect = (payload: { playerId: string; word: string }) => {
       setGuesses((messages) => [
         ...messages,
         {
-          playerId: payload.winnerId,
-          text: `a trouvé le mot ${payload.word}`
+          playerId: payload.playerId,
+          text: `a trouvé le mot !`
         }
       ]);
-      clearCanvas();
     };
 
     const handleGuessSubmitted = (payload: GuessMessage) => {
@@ -300,11 +317,13 @@ export default function GameRoomPage() {
     socket.on('round:ended', handleRoundEnded);
     socket.on('round:cancelled', handleRoundCancelled);
     socket.on('guess:submitted', handleGuessSubmitted);
-    socket.on('room:error', handleRoomError);
+  socket.on('room:error', handleRoomError);
     socket.on('room:closed', handleRoomClosed);
     socket.on('draw:segment', handleDrawSegment);
     socket.on('draw:fill', handleDrawFill);
     socket.on('auth:error', handleAuthError);
+  socket.on('timer:tick', handleTimerTick);
+  socket.on('guess:correct', handleGuessCorrect);
 
     // Si le socket est déjà connecté au moment du montage
     console.log('[GameRoom] 🔍 Vérification état socket:', {
@@ -339,7 +358,9 @@ export default function GameRoomPage() {
       socket.off('room:closed', handleRoomClosed);
       socket.off('draw:segment', handleDrawSegment);
       socket.off('draw:fill', handleDrawFill);
-      socket.off('auth:error', handleAuthError);
+  socket.off('auth:error', handleAuthError);
+  socket.off('timer:tick', handleTimerTick);
+  socket.off('guess:correct', handleGuessCorrect);
       hasJoinedRoomRef.current = false;
     };
   }, [clearAuth, clearCanvas, drawPoints, roomId, router, setCurrentRoom, setPlayerId, setRound, user, hydrated, isJoiningRoom]);
@@ -572,7 +593,13 @@ export default function GameRoomPage() {
       <Group justify="space-between">
         <div>
           <Title order={2}>{currentRoom?.name ?? 'Salle de jeu'}</Title>
-          <Text c="dimmed">Manche {round ? 'en cours' : 'en attente'}</Text>
+          <Text c="dimmed">
+            {currentRoom?.currentRound === currentRoom?.totalRounds && !round
+              ? 'Jeu terminé'
+              : round
+                ? 'Manche en cours'
+                : 'En attente'}
+          </Text>
         </div>
         <Button variant="subtle" onClick={handleLeaveRoom}>
           Quitter
@@ -615,13 +642,15 @@ export default function GameRoomPage() {
             <>
               <Card withBorder padding="md" radius="md">
                 <Group justify="space-between" align="flex-start" p="lg" >
-                  <Text>Manche en cours</Text>
+                  <Text>
+                    {`Round ${currentRoom.currentRound}/${currentRoom.totalRounds}`}
+                  </Text>
                   {(word || round?.revealed) && (
                     <Text size="24px" fw={700} ta="center" style={{ letterSpacing: "0.2em" }}>
                       {word ? `${word}` : round?.revealed}
                     </Text>
                   )}
-                  <Text>{Math.round(((round.roundEndsAt - Date.now()) / 1000))}s</Text>
+                  <Text>{Math.max(0, Math.round((round.roundEndsAt - Date.now()) / 1000))}s</Text>
                 </Group>
                 <Divider my="md" />
                 <canvas
