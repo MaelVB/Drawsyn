@@ -22,7 +22,7 @@ interface ConnectionState {
   roomId?: string;
   playerId?: string;
   userId: string;
-  username: string;
+  pseudo: string;
 }
 
 @WebSocketGateway({ namespace: '/game', cors: { origin: true, credentials: true } })
@@ -36,16 +36,22 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(private readonly game: GameService, private readonly auth: AuthService) {}
 
   async handleConnection(client: Socket) {
+    console.log('[WebSocket] Nouvelle connexion:', client.id);
+    console.log('[WebSocket] handshake.auth:', client.handshake.auth);
+    console.log('[WebSocket] headers.authorization:', client.handshake.headers.authorization);
+    
     const user = await this.authenticate(client);
     if (!user) {
+      console.log('[WebSocket] Authentification échouée pour', client.id);
       client.emit('auth:error', { message: 'Authentification requise' });
       client.disconnect(true);
       return;
     }
 
+    console.log('[WebSocket] Connexion réussie pour', user.pseudo, '(', user.id, ')');
     this.connections.set(client.id, {
       userId: user.id,
-      username: user.username
+      pseudo: user.pseudo
     });
 
     client.emit('room:list', this.game.listRooms());
@@ -87,7 +93,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const { room, player } = this.game.joinRoom({
         roomId: dto.roomId,
         userId: connection.userId,
-        username: connection.username
+        pseudo: connection.pseudo
       });
       this.connections.set(client.id, {
         ...connection,
@@ -126,7 +132,23 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!connection || !connection.playerId || !connection.roomId) return;
     if (!this.game.canDraw(connection.playerId, connection.roomId)) return;
 
-    client.to(connection.roomId).emit('draw:segment', dto.points);
+    client.to(connection.roomId).emit('draw:segment', {
+      points: dto.points,
+      color: dto.color,
+      size: dto.size,
+      type: dto.type
+    });
+  }
+
+  @SubscribeMessage('draw:fill')
+  handleFill(@ConnectedSocket() client: Socket, @MessageBody() data: { roomId: string; color: string }) {
+    const connection = this.connections.get(client.id);
+    if (!connection || !connection.playerId || !connection.roomId) return;
+    if (!this.game.canDraw(connection.playerId, connection.roomId)) return;
+
+    client.to(connection.roomId).emit('draw:fill', {
+      color: data.color
+    });
   }
 
   @SubscribeMessage('guess:submit')
@@ -219,20 +241,32 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private async authenticate(client: Socket): Promise<AuthenticatedUser | null> {
     const token = this.extractToken(client);
-    return this.auth.verifyToken(token);
+    if (!token) {
+      console.log('[WebSocket] Aucun token trouvé pour', client.id);
+      return null;
+    }
+    console.log('[WebSocket] Token reçu:', token.substring(0, 20) + '...');
+    const user = await this.auth.verifyToken(token);
+    if (!user) {
+      console.log('[WebSocket] Token invalide ou expiré');
+    }
+    return user;
   }
 
   private extractToken(client: Socket): string | undefined {
     const auth = client.handshake.auth as { token?: string } | undefined;
     if (auth?.token) {
+      console.log('[WebSocket] Token extrait de handshake.auth');
       return String(auth.token);
     }
 
     const header = client.handshake.headers.authorization;
     if (typeof header === 'string' && header.startsWith('Bearer ')) {
+      console.log('[WebSocket] Token extrait de Authorization header');
       return header.slice(7);
     }
 
+    console.log('[WebSocket] Aucun token trouvé dans handshake');
     return undefined;
   }
 }

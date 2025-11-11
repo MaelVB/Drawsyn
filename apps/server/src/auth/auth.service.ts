@@ -10,13 +10,15 @@ import { RegisterDto } from './dto/register.dto';
 
 interface TokenPayload {
   sub: string;
-  username: string;
+  pseudo: string;
+  email: string;
   exp: number;
 }
 
 export interface AuthenticatedUser {
   id: string;
-  username: string;
+  pseudo: string;
+  email: string;
 }
 
 export interface AuthResponse {
@@ -34,55 +36,84 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto): Promise<AuthResponse> {
-    const existing = await this.users.findByUsername(dto.username);
-    if (existing) {
-      throw new BadRequestException('Nom d\'utilisateur déjà utilisé');
+    const existingPseudo = await this.users.findByPseudo(dto.pseudo);
+    if (existingPseudo) {
+      throw new BadRequestException('Ce pseudo est déjà utilisé');
+    }
+
+    const existingEmail = await this.users.findByEmail(dto.email);
+    if (existingEmail) {
+      throw new BadRequestException('Cette adresse email est déjà utilisée');
     }
 
     const password = this.hashPassword(dto.password);
-    const user = await this.users.create(dto.username, password);
-    return this.buildResponse(user.id, user.username);
+    const user = await this.users.create(dto.pseudo, dto.email, password);
+    return this.buildResponse(user.id, user.pseudo, user.email);
   }
 
   async login(dto: LoginDto): Promise<AuthResponse> {
-    const user = await this.users.findByUsername(dto.username);
+    // Essayer de trouver l'utilisateur par email ou pseudo
+    let user = await this.users.findByEmail(dto.identifier);
+    if (!user) {
+      user = await this.users.findByPseudo(dto.identifier);
+    }
+
     if (!user || !this.verifyPassword(dto.password, user.password)) {
       throw new UnauthorizedException('Identifiants invalides');
     }
 
-    return this.buildResponse(user.id, user.username);
+    // Vérifier que l'utilisateur a les nouveaux champs requis
+    if (!user.pseudo || !user.email) {
+      throw new UnauthorizedException('Compte obsolète. Veuillez créer un nouveau compte.');
+    }
+
+    return this.buildResponse(user.id, user.pseudo, user.email);
   }
 
   async verifyToken(token: string | undefined): Promise<AuthenticatedUser | null> {
-    if (!token) return null;
+    if (!token) {
+      console.log('[Auth] Aucun token fourni');
+      return null;
+    }
 
     try {
       const payload = this.decodeToken(token);
       if (payload.exp * 1000 < Date.now()) {
+        console.log('[Auth] Token expiré');
         return null;
       }
 
       const user = await this.users.findById(payload.sub);
       if (!user) {
+        console.log('[Auth] Utilisateur non trouvé:', payload.sub);
         return null;
       }
 
-      return { id: user.id, username: user.username };
+      // Vérifier que l'utilisateur a les nouveaux champs requis
+      if (!user.pseudo || !user.email) {
+        console.log('[Auth] Utilisateur avec ancien format détecté (pas de pseudo ou email)');
+        return null;
+      }
+
+      console.log('[Auth] Token valide pour', user.pseudo);
+      return { id: user.id, pseudo: user.pseudo, email: user.email };
     } catch (error) {
+      console.log('[Auth] Erreur lors de la vérification du token:', (error as Error).message);
       return null;
     }
   }
 
-  private buildResponse(id: string, username: string): AuthResponse {
+  private buildResponse(id: string, pseudo: string, email: string): AuthResponse {
     const payload: TokenPayload = {
       sub: id,
-      username,
+      pseudo,
+      email,
       exp: Math.floor(Date.now() / 1000) + this.tokenTtlSeconds
     };
 
     return {
       token: this.signToken(payload),
-      user: { id, username }
+      user: { id, pseudo, email }
     };
   }
 

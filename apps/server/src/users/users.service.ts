@@ -8,13 +8,17 @@ import { User, UserDocument } from './schemas/user.schema';
 export class UsersService {
   constructor(@InjectModel(User.name) private readonly model: Model<UserDocument>) {}
 
-  async create(username: string, password: string) {
-    const created = new this.model({ username, password });
+  async create(pseudo: string, email: string, password: string) {
+    const created = new this.model({ pseudo, email, password });
     return created.save();
   }
 
-  async findByUsername(username: string) {
-    return this.model.findOne({ username: username.toLowerCase().trim() }).exec();
+  async findByPseudo(pseudo: string) {
+    return this.model.findOne({ pseudo: pseudo.trim() }).exec();
+  }
+
+  async findByEmail(email: string) {
+    return this.model.findOne({ email: email.toLowerCase().trim() }).exec();
   }
 
   async findById(id: string) {

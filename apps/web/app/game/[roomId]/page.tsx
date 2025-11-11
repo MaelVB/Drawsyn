@@ -11,9 +11,13 @@ import {
   Stack,
   Text,
   TextInput,
-  Title
+  Title,
+  ColorPicker,
+  Slider,
+  SegmentedControl,
+  Box
 } from '@mantine/core';
-import { IconInfoCircle } from '@tabler/icons-react';
+import { IconInfoCircle, IconBrush, IconPencil, IconBucket } from '@tabler/icons-react';
 
 import { getSocket } from '@/lib/socket';
 import { useAuthStore } from '@/stores/auth-store';
@@ -56,6 +60,11 @@ export default function GameRoomPage() {
   const [guesses, setGuesses] = useState<GuessMessage[]>([]);
   const [guessText, setGuessText] = useState('');
   const [error, setError] = useState<string | undefined>();
+  
+  // États pour les outils de dessin
+  const [brushColor, setBrushColor] = useState('#000000');
+  const [brushSize, setBrushSize] = useState(4);
+  const [brushType, setBrushType] = useState<'brush' | 'pencil' | 'bucket'>('brush');
 
   const isDrawer = useMemo(() => round && playerId ? round.drawerId === playerId : false, [round, playerId]);
 
@@ -68,16 +77,27 @@ export default function GameRoomPage() {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }, []);
 
-  const drawPoints = useCallback((points: { x: number; y: number }[], color: string) => {
+  const drawPoints = useCallback((points: { x: number; y: number }[], color: string, size: number = 4, type: 'brush' | 'pencil' | 'bucket' = 'brush') => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     ctx.strokeStyle = color;
-    ctx.lineWidth = 4;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
+    ctx.lineWidth = size;
+    
+    if (type === 'pencil') {
+      // Crayon pixelisé - pas d'antialiasing
+      ctx.imageSmoothingEnabled = false;
+      ctx.lineJoin = 'miter';
+      ctx.lineCap = 'square';
+    } else {
+      // Pinceau classique - lisse
+      ctx.imageSmoothingEnabled = true;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+    }
+    
     ctx.beginPath();
     points.forEach((point, index) => {
       if (index === 0) {
@@ -161,8 +181,17 @@ export default function GameRoomPage() {
       router.replace('/');
     };
 
-    const handleDrawSegment = (points: { x: number; y: number }[]) => {
-      drawPoints(points, '#4dabf7');
+    const handleDrawSegment = (payload: { points: { x: number; y: number }[], color?: string, size?: number, type?: 'brush' | 'pencil' | 'bucket' }) => {
+      drawPoints(payload.points, payload.color || '#4dabf7', payload.size || 4, payload.type || 'brush');
+    };
+    
+    const handleDrawFill = (payload: { color: string }) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.fillStyle = payload.color;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
     };
 
     const handleAuthError = (payload: { message?: string }) => {
@@ -181,6 +210,7 @@ export default function GameRoomPage() {
     socket.on('room:error', handleRoomError);
     socket.on('room:closed', handleRoomClosed);
     socket.on('draw:segment', handleDrawSegment);
+    socket.on('draw:fill', handleDrawFill);
     socket.on('auth:error', handleAuthError);
 
     if (!isMountedRef.current && user) {
@@ -199,6 +229,7 @@ export default function GameRoomPage() {
       socket.off('room:error', handleRoomError);
       socket.off('room:closed', handleRoomClosed);
       socket.off('draw:segment', handleDrawSegment);
+      socket.off('draw:fill', handleDrawFill);
       socket.off('auth:error', handleAuthError);
     };
   }, [clearAuth, clearCanvas, drawPoints, roomId, router, setCurrentRoom, setPlayerId, setRound, user]);
@@ -215,24 +246,56 @@ export default function GameRoomPage() {
     const rect = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
+    
+    // Gérer le seau (remplissage)
+    if (brushType === 'bucket') {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      
+      // Remplissage simple de tout le canvas
+      ctx.fillStyle = brushColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Émettre l'action de remplissage
+      if (roomId) {
+        getSocket().emit('draw:fill', { roomId, color: brushColor });
+      }
+      return;
+    }
+    
     currentStroke.current = [{ x, y, t: Date.now() }];
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDrawer || currentStroke.current.length === 0) return;
+    if (!isDrawer || currentStroke.current.length === 0 || brushType === 'bucket') return;
     const rect = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     const point = { x, y, t: Date.now() };
     const updated = [...currentStroke.current, point];
     currentStroke.current = updated;
-    drawPoints(updated.slice(-2), '#82c91e');
+    
+    // Dessiner localement avec les paramètres choisis
+    drawPoints(updated.slice(-2), brushColor, brushSize, brushType);
+    
+    // Émettre en temps réel les points aux autres joueurs
+    if (roomId) {
+      const socket = getSocket();
+      socket.emit('draw:segment', { 
+        roomId, 
+        points: updated.slice(-2),
+        color: brushColor,
+        size: brushSize,
+        type: brushType
+      });
+    }
   };
 
   const handlePointerUp = () => {
     if (!isDrawer || currentStroke.current.length === 0 || !roomId) return;
-    const socket = getSocket();
-    socket.emit('draw:segment', { roomId, points: currentStroke.current });
+    // Réinitialiser le trait en cours (plus besoin d'envoyer ici car déjà envoyé en temps réel)
     currentStroke.current = [];
   };
 
@@ -292,77 +355,153 @@ export default function GameRoomPage() {
         </Alert>
       )}
 
-      <Group align="flex-start" gap="lg">
-        <Card withBorder padding="sm" radius="md">
-          <canvas
-            ref={canvasRef}
-            width={720}
-            height={480}
-            style={{ touchAction: 'none', borderRadius: 12, backgroundColor: '#1a1b1e' }}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerLeave={handlePointerUp}
-            onPointerCancel={handlePointerUp}
-          />
+      <Group align="flex-start" justify="center" gap="lg" wrap="nowrap">
+        {/* Colonne de gauche - Joueurs */}
+        <Card withBorder padding="md" radius="md" style={{ width: 250, flexShrink: 0 }}>
+          <Title order={4}>Joueurs</Title>
+          <Stack gap={8} mt="sm">
+            {currentRoom &&
+              Object.values(currentRoom.players).map((player) => (
+                <Group key={player.id} justify="space-between">
+                  <Text size="sm">{player.name}</Text>
+                  <Stack gap={4}>
+                    {round?.drawerId === player.id && <Badge color="violet" size="xs">Dessine</Badge>}
+                    <Badge variant={playerId === player.id ? 'filled' : 'light'} size="sm">
+                      {player.score} pts
+                    </Badge>
+                  </Stack>
+                </Group>
+              ))}
+          </Stack>
         </Card>
 
-        <Stack gap="md" style={{ flex: 1 }}>
-          <Card withBorder padding="md" radius="md">
-            <Title order={4}>Joueurs</Title>
-            <Stack gap={8} mt="sm">
-              {currentRoom &&
-                Object.values(currentRoom.players).map((player) => (
-                  <Group key={player.id} justify="space-between">
-                    <Text>{player.name}</Text>
-                    <Group gap={6}>
-                      {round?.drawerId === player.id && <Badge color="violet">Dessine</Badge>}
-                      <Badge variant={playerId === player.id ? 'filled' : 'light'}>
-                        {player.score} pts
-                      </Badge>
-                    </Group>
-                  </Group>
-                ))}
-            </Stack>
+        {/* Centre - Zone de dessin */}
+        <Stack gap="sm" style={{ flexShrink: 0 }}>
+          <Card withBorder padding="sm" radius="md">
+            <canvas
+              ref={canvasRef}
+              width={720}
+              height={480}
+              style={{ touchAction: 'none', borderRadius: 12, cursor: brushType === 'bucket' ? 'pointer' : 'crosshair', backgroundColor: 'white' }}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerLeave={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+            />
           </Card>
-
-          <Card withBorder padding="md" radius="md">
-            <Title order={4}>Discussion</Title>
-            <Stack gap={6} mt="sm" style={{ maxHeight: 240, overflowY: 'auto' }}>
-              {guesses.map((message, index) => (
-                <Text key={index} size="sm">
-                  <strong>
-                    {message.playerId === 'system'
-                      ? 'Système'
-                      : message.playerId === playerId || message.playerId === 'self'
-                        ? 'Vous'
-                        : currentRoom?.players[message.playerId]?.name ?? '???'}
-                    :
-                  </strong>{' '}
-                  {message.text}
-                </Text>
-              ))}
-            </Stack>
-            <Group mt="md">
-              <TextInput
-                value={guessText}
-                onChange={(event) => setGuessText(event.currentTarget.value)}
-                placeholder="Votre proposition"
-                flex={1}
-                disabled={isDrawer}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    handleSubmitGuess();
-                  }
-                }}
-              />
-              <Button onClick={handleSubmitGuess} disabled={isDrawer || !guessText.trim()}>
-                Envoyer
-              </Button>
-            </Group>
-          </Card>
+          
+          {/* Panneau d'outils */}
+          {isDrawer && (
+            <Card withBorder padding="md" radius="md" style={{ width: 720 }}>
+              <Group justify="space-between" align="flex-start">
+                {/* Couleurs */}
+                <Box>
+                  <Text size="sm" fw={500} mb="xs">Couleur</Text>
+                  <ColorPicker 
+                    value={brushColor} 
+                    onChange={setBrushColor}
+                    format="hex"
+                    swatches={['#000000', '#FFFFFF', '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF', '#FFA500', '#800080']}
+                  />
+                </Box>
+                
+                {/* Taille du pinceau */}
+                <Box style={{ width: 200 }}>
+                  <Text size="sm" fw={500} mb="xs">Taille: {brushSize}px</Text>
+                  <Slider 
+                    value={brushSize}
+                    onChange={setBrushSize}
+                    min={1}
+                    max={50}
+                    step={1}
+                    marks={[
+                      { value: 1, label: '1' },
+                      { value: 25, label: '25' },
+                      { value: 50, label: '50' }
+                    ]}
+                  />
+                </Box>
+                
+                {/* Type de pinceau */}
+                <Box>
+                  <Text size="sm" fw={500} mb="xs">Type d'outil</Text>
+                  <SegmentedControl
+                    value={brushType}
+                    onChange={(value) => setBrushType(value as 'brush' | 'pencil' | 'bucket')}
+                    data={[
+                      { 
+                        value: 'brush', 
+                        label: (
+                          <Group gap={4} justify="center">
+                            <IconBrush size={16} />
+                            <span>Pinceau</span>
+                          </Group>
+                        )
+                      },
+                      { 
+                        value: 'pencil', 
+                        label: (
+                          <Group gap={4} justify="center">
+                            <IconPencil size={16} />
+                            <span>Crayon</span>
+                          </Group>
+                        )
+                      },
+                      { 
+                        value: 'bucket', 
+                        label: (
+                          <Group gap={4} justify="center">
+                            <IconBucket size={16} />
+                            <span>Seau</span>
+                          </Group>
+                        )
+                      }
+                    ]}
+                  />
+                </Box>
+              </Group>
+            </Card>
+          )}
         </Stack>
+
+        {/* Colonne de droite - Discussion */}
+        <Card withBorder padding="md" radius="md" style={{ width: 300, flexShrink: 0 }}>
+          <Title order={4}>Propositions</Title>
+          <Stack gap={6} mt="sm" style={{ maxHeight: 400, overflowY: 'auto' }}>
+            {guesses.map((message, index) => (
+              <Text key={index} size="sm">
+                <strong>
+                  {message.playerId === 'system'
+                    ? 'Système'
+                    : message.playerId === playerId || message.playerId === 'self'
+                      ? 'Vous'
+                      : currentRoom?.players[message.playerId]?.name ?? '???'}
+                  :
+                </strong>{' '}
+                {message.text}
+              </Text>
+            ))}
+          </Stack>
+          <Group mt="md" gap="xs">
+            <TextInput
+              value={guessText}
+              onChange={(event) => setGuessText(event.currentTarget.value)}
+              placeholder="Votre proposition"
+              flex={1}
+              disabled={isDrawer}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  handleSubmitGuess();
+                }
+              }}
+            />
+            <Button onClick={handleSubmitGuess} disabled={isDrawer || !guessText.trim()}>
+              Envoyer
+            </Button>
+          </Group>
+        </Card>
       </Group>
     </Stack>
   );

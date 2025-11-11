@@ -8,7 +8,7 @@ import { PlayerState, RoomState } from './types/game-state';
 interface JoinContext {
   roomId: string;
   userId: string;
-  username: string;
+  pseudo: string;
 }
 
 export interface JoinRoomResult {
@@ -44,12 +44,12 @@ export class GameService {
     const player: PlayerState = existing
       ? {
           ...existing,
-          name: context.username,
+          name: context.pseudo,
           connected: true
         }
       : {
           id: context.userId,
-          name: context.username,
+          name: context.pseudo,
           score: 0,
           isDrawing: false,
           connected: true

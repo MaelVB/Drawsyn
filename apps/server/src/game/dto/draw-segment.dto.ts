@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsNumber, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsNumber, IsOptional, IsString, ValidateNested, IsIn } from 'class-validator';
 
 class SegmentPointDto {
   @IsNumber()
@@ -20,4 +20,16 @@ export class DrawSegmentDto {
   @ValidateNested({ each: true })
   @Type(() => SegmentPointDto)
   points!: SegmentPointDto[];
+
+  @IsOptional()
+  @IsString()
+  color?: string;
+
+  @IsOptional()
+  @IsNumber()
+  size?: number;
+
+  @IsOptional()
+  @IsIn(['brush', 'pencil', 'bucket'])
+  type?: 'brush' | 'pencil' | 'bucket';
 }

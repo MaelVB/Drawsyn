@@ -39,30 +39,60 @@ export default function LobbyPage() {
   const [maxPlayers, setMaxPlayers] = useState<number | ''>(6);
   const [roundDuration, setRoundDuration] = useState<number | ''>(90);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
-  const [username, setUsername] = useState('');
+  const [pseudo, setPseudo] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState<string | undefined>();
   const [authLoading, setAuthLoading] = useState(false);
 
   useEffect(() => {
     if (!token) return;
-    const socket = getSocket();
-    const handleRooms = (payload: RoomState[]) => setRooms(payload);
-    const handleCreated = (payload: { id: string }) => {
-      router.push(`/game/${payload.id}`);
-    };
-    const handleAuthError = (payload: { message?: string }) => {
-      setAuthError(payload.message ?? 'Session expirée, veuillez vous reconnecter.');
-      clearAuth();
-    };
-    socket.on('room:list', handleRooms);
-    socket.on('room:created', handleCreated);
-    socket.on('auth:error', handleAuthError);
-    socket.emit('room:list');
+    
+    // Attendre un petit délai pour être sûr que le socket est bien initialisé
+    const timer = setTimeout(() => {
+      const socket = getSocket();
+      console.log('[Page] Configuration des listeners, socket.connected:', socket.connected);
+      
+      const handleRooms = (payload: RoomState[]) => {
+        console.log('[Page] Liste des rooms reçue:', payload.length, 'rooms');
+        setRooms(payload);
+      };
+      
+      const handleCreated = (payload: { id: string }) => {
+        console.log('[Page] Room créée:', payload.id);
+        router.push(`/game/${payload.id}`);
+      };
+      
+      const handleAuthError = (payload: { message?: string }) => {
+        console.error('[Page] Erreur d\'authentification reçue:', payload);
+        setAuthError(payload.message ?? 'Session expirée, veuillez vous reconnecter.');
+        clearAuth();
+      };
+      
+      const handleConnect = () => {
+        console.log('[Page] Socket connecté, demande de la liste des rooms');
+        socket.emit('room:list');
+      };
+      
+      socket.on('connect', handleConnect);
+      socket.on('room:list', handleRooms);
+      socket.on('room:created', handleCreated);
+      socket.on('auth:error', handleAuthError);
+      
+      // Si déjà connecté, demander immédiatement
+      if (socket.connected) {
+        console.log('[Page] Socket déjà connecté');
+        socket.emit('room:list');
+      }
+    }, 100);
+    
     return () => {
-      socket.off('room:list', handleRooms);
-      socket.off('room:created', handleCreated);
-      socket.off('auth:error', handleAuthError);
+      clearTimeout(timer);
+      const socket = getSocket();
+      socket.off('connect');
+      socket.off('room:list');
+      socket.off('room:created');
+      socket.off('auth:error');
     };
   }, [clearAuth, router, setRooms, token]);
 
@@ -100,22 +130,33 @@ export default function LobbyPage() {
   };
 
   const handleAuthSubmit = async () => {
-    if (!username.trim() || !password.trim()) {
-      setAuthError('Remplissez le formulaire.');
-      return;
+    if (authMode === 'register') {
+      if (!pseudo.trim() || !email.trim() || !password.trim()) {
+        setAuthError('Remplissez tous les champs.');
+        return;
+      }
+    } else {
+      if (!email.trim() || !password.trim()) {
+        setAuthError('Remplissez tous les champs.');
+        return;
+      }
     }
 
     setAuthLoading(true);
     setAuthError(undefined);
     try {
+      console.log('[Auth] Tentative de', authMode === 'login' ? 'connexion' : 'inscription');
       const payload =
         authMode === 'login'
-          ? await login(username.trim(), password)
-          : await register(username.trim(), password);
+          ? await login(email.trim(), password)
+          : await register(pseudo.trim(), email.trim(), password);
+      console.log('[Auth] Authentification réussie:', payload.user);
       setAuth(payload);
-      setUsername('');
+      setPseudo('');
+      setEmail('');
       setPassword('');
     } catch (error) {
+      console.error('[Auth] Erreur:', error);
       setAuthError((error as Error).message);
     } finally {
       setAuthLoading(false);
@@ -149,13 +190,34 @@ export default function LobbyPage() {
                   {authMode === 'login' ? "Créer un compte" : 'Déjà inscrit ?'}
                 </Anchor>
               </Group>
-              <TextInput
-                label="Nom d'utilisateur"
-                placeholder="Votre pseudo"
-                value={username}
-                onChange={(event) => setUsername(event.currentTarget.value)}
-                autoComplete="username"
-              />
+              {authMode === 'register' && (
+                <TextInput
+                  label="Pseudo"
+                  placeholder="Votre pseudo"
+                  value={pseudo}
+                  onChange={(event) => setPseudo(event.currentTarget.value)}
+                  autoComplete="username"
+                />
+              )}
+              {authMode === 'register' && (
+                <TextInput
+                  label="Adresse email"
+                  placeholder="votre@email.com"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.currentTarget.value)}
+                  autoComplete="email"
+                />
+              )}
+              {authMode === 'login' && (
+                <TextInput
+                  label="Email ou pseudo"
+                  placeholder="votre@email.com ou votre pseudo"
+                  value={email}
+                  onChange={(event) => setEmail(event.currentTarget.value)}
+                  autoComplete="username"
+                />
+              )}
               <PasswordInput
                 label="Mot de passe"
                 placeholder="Votre mot de passe"
@@ -176,7 +238,7 @@ export default function LobbyPage() {
         ) : (
           <Card withBorder padding="lg" radius="md" style={{ flex: '1 1 320px' }}>
             <Stack>
-              <Title order={3}>Bonjour {user.username}</Title>
+              <Title order={3}>Bonjour {user.pseudo}</Title>
               <Text c="dimmed">Vous êtes connecté. Vous pouvez créer ou rejoindre une partie.</Text>
               <Button variant="subtle" onClick={clearAuth} color="red">
                 Se déconnecter
