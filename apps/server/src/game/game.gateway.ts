@@ -36,28 +36,36 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(private readonly game: GameService, private readonly auth: AuthService) {}
 
   async handleConnection(client: Socket) {
-    console.log('[WebSocket] Nouvelle connexion:', client.id);
-    console.log('[WebSocket] handshake.auth:', client.handshake.auth);
-    console.log('[WebSocket] headers.authorization:', client.handshake.headers.authorization);
+    console.log('[WebSocket] ========================================');
+    console.log('[WebSocket] 🔌 Nouvelle connexion:', client.id);
+    console.log('[WebSocket] 📦 handshake.auth:', JSON.stringify(client.handshake.auth));
+    console.log('[WebSocket] 📋 headers.authorization:', client.handshake.headers.authorization);
+    console.log('[WebSocket] 📋 All headers:', JSON.stringify(client.handshake.headers));
     
     const user = await this.authenticate(client);
     if (!user) {
-      console.log('[WebSocket] Authentification échouée pour', client.id);
+      console.log('[WebSocket] ❌ Authentification échouée pour', client.id);
       client.emit('auth:error', { message: 'Authentification requise' });
       client.disconnect(true);
       return;
     }
 
-    console.log('[WebSocket] Connexion réussie pour', user.pseudo, '(', user.id, ')');
+    console.log('[WebSocket] ✅ Connexion réussie pour', user.pseudo, '(', user.id, ')');
+    
+    // IMPORTANT: Ajouter à connections AVANT d'émettre quoi que ce soit
+    // pour que les autres handlers puissent vérifier l'authentification
     this.connections.set(client.id, {
       userId: user.id,
       pseudo: user.pseudo
     });
 
     client.emit('room:list', this.game.listRooms());
+    console.log('[WebSocket] ========================================');
   }
 
   handleDisconnect(client: Socket) {
+    const connection = this.connections.get(client.id);
+    console.log('[WebSocket] 🔌 Déconnexion de', client.id, connection ? `(${connection.pseudo})` : '(inconnu)');
     this.removeClientFromRoom(client);
     this.connections.delete(client.id);
   }
@@ -89,12 +97,14 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('auth:error', { message: 'Authentification requise' });
       return;
     }
+    console.log('[WebSocket] 🚪 Tentative de rejoindre room:', dto.roomId, 'par', connection.pseudo);
     try {
       const { room, player } = this.game.joinRoom({
         roomId: dto.roomId,
         userId: connection.userId,
         pseudo: connection.pseudo
       });
+      console.log('[WebSocket] ✅', connection.pseudo, 'a rejoint', room.name, '- Reconnexion:', !player.connected ? 'Oui' : 'Non');
       this.connections.set(client.id, {
         ...connection,
         roomId: room.id,
@@ -108,6 +118,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const round = this.game.ensureRound(room.id);
       if (round) {
+        console.log('[WebSocket] 🎨 Round en cours, dessinateur:', round.drawerId);
         this.server.to(room.id).emit('round:started', {
           drawerId: round.drawerId,
           roundEndsAt: round.roundEndsAt,
@@ -117,6 +128,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.emitRoomState(room.id);
       }
     } catch (error) {
+      console.error('[WebSocket] ❌ Erreur lors du join:', (error as Error).message);
       client.emit('room:error', { message: (error as Error).message });
     }
   }
@@ -131,6 +143,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const connection = this.connections.get(client.id);
     if (!connection || !connection.playerId || !connection.roomId) return;
     if (!this.game.canDraw(connection.playerId, connection.roomId)) return;
+
+    // Mettre à jour l'activité de la room
+    this.game.updateRoomActivity(connection.roomId);
 
     client.to(connection.roomId).emit('draw:segment', {
       points: dto.points,
@@ -197,7 +212,12 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private removeClientFromRoom(client: Socket) {
     const connection = this.connections.get(client.id);
-    if (!connection?.roomId || !connection.playerId) return;
+    if (!connection?.roomId || !connection.playerId) {
+      console.log('[WebSocket] removeClientFromRoom: pas de room/player pour', client.id);
+      return;
+    }
+
+    console.log('[WebSocket] 🚪 Retrait de', connection.pseudo, 'de la room', connection.roomId);
 
     client.leave(connection.roomId);
     client.leave(connection.playerId);
@@ -209,6 +229,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
 
     if (room) {
+      console.log('[WebSocket] ✅ Room toujours active:', room.name, '- Joueurs:', Object.values(room.players).map(p => `${p.name}(${p.connected ? 'connecté' : 'déconnecté'})`).join(', '));
       this.emitRoomState(room.id);
       if (room.round) {
         this.server.to(room.id).emit('round:started', {
@@ -218,9 +239,11 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         });
         this.server.to(room.round.drawerId).emit('round:word', { word: room.round.word });
       } else {
+        console.log('[WebSocket] ❌ Round annulé car le dessinateur est parti');
         this.server.to(room.id).emit('round:cancelled');
       }
     } else {
+      console.log('[WebSocket] ⚠️ Room supprimée (aucun joueur restant):', connection.roomId);
       this.server.emit('room:closed', connection.roomId);
     }
 

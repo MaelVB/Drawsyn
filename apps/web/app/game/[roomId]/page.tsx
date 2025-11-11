@@ -15,11 +15,16 @@ import {
   ColorPicker,
   Slider,
   SegmentedControl,
-  Box
+  Box,
+  Modal,
+  PasswordInput,
+  Tabs,
+  Divider
 } from '@mantine/core';
 import { IconInfoCircle, IconBrush, IconPencil, IconBucket } from '@tabler/icons-react';
 
 import { getSocket } from '@/lib/socket';
+import { register, login } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth-store';
 import { useGameStore } from '@/stores/game-store';
 
@@ -43,7 +48,8 @@ export default function GameRoomPage() {
   const clearAuth = useAuthStore((state) => state.clearAuth);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const currentStroke = useRef<{ x: number; y: number; t: number }[]>([]);
-  const isMountedRef = useRef(false);
+  const hasJoinedRoomRef = useRef(false);
+  const [isJoiningRoom, setIsJoiningRoom] = useState(false);
 
   const { currentRoom, playerId, round, setCurrentRoom, setPlayerId, setRound } = useGameStore(
     (state) => ({
@@ -66,6 +72,15 @@ export default function GameRoomPage() {
   const [brushSize, setBrushSize] = useState(4);
   const [brushType, setBrushType] = useState<'brush' | 'pencil' | 'bucket'>('brush');
 
+  // États pour la modal d'authentification
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authPseudo, setAuthPseudo] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState<string | undefined>();
+  const [authLoading, setAuthLoading] = useState(false);
+
   const isDrawer = useMemo(() => round && playerId ? round.drawerId === playerId : false, [round, playerId]);
 
   const clearCanvas = useCallback(() => {
@@ -73,7 +88,7 @@ export default function GameRoomPage() {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.fillStyle = '#1a1b1e';
+    ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }, []);
 
@@ -110,27 +125,50 @@ export default function GameRoomPage() {
   }, []);
 
   useEffect(() => {
+    // N'installer les listeners que si l'utilisateur est authentifié
+    if (!hydrated || !user) {
+      console.log('[GameRoom] Attente de l\'hydratation...', { hydrated, user: !!user });
+      return;
+    }
+
     const socket = getSocket();
+    console.log('[GameRoom] 🎬 Installation des listeners, socket.connected:', socket.connected, 'socket.id:', socket.id);
 
     const handleRoomJoined = (payload: { room: any; playerId: string }) => {
+      console.log('[GameRoom] ✅ Salle rejointe avec succès:', payload.room.name);
+
       setCurrentRoom(payload.room);
       setPlayerId(payload.playerId);
-      setError(undefined);
+      setError(undefined); // Effacer toute erreur d'auth précédente
+      setIsJoiningRoom(false);
+      
+      // Effacer le canvas seulement si aucun round en cours (lobby)
+      // Si un round est en cours, on va recevoir round:started qui synchronisera l'état
+      if (!payload.room.round) {
+        console.log('[GameRoom] Pas de round en cours - canvas effacé');
+        clearCanvas();
+      } else {
+        console.log('[GameRoom] Round en cours - canvas conservé (sera synchronisé)');
+      }
     };
 
     const handleRoomState = (payload: any) => {
+      console.log('[GameRoom] 🔄 Mise à jour de l\'état de la room:', payload.name, '- Joueurs:', Object.values(payload.players).map((p: any) => `${p.name}(${p.connected ? '✓' : '✗'})`).join(', '));
       setCurrentRoom(payload);
     };
 
     const handleRoundStarted = (payload: any) => {
+      console.log('[GameRoom] 🎨 Round started - drawerId:', payload.drawerId);
+      
       setRound({
         drawerId: payload.drawerId,
         roundEndsAt: payload.roundEndsAt,
         revealed: payload.revealed
       });
       setWord(undefined);
-      clearCanvas();
-      setGuesses([]);
+      
+      // Ne PAS effacer le canvas ici - il sera effacé uniquement lors de round:ended
+      // Cela permet de conserver le dessin lors d'un F5
     };
 
     const handleRoundWord = (payload: RoundWordPayload) => {
@@ -171,7 +209,15 @@ export default function GameRoomPage() {
     };
 
     const handleRoomError = (payload: { message: string }) => {
+      console.error('[GameRoom] ❌ Erreur room:', payload.message);
       setError(payload.message);
+      setIsJoiningRoom(false);
+      
+      // Si la room n'existe plus, retourner au lobby
+      if (payload.message.includes('not found') || payload.message.includes('existe plus')) {
+        console.log('[GameRoom] Room introuvable, retour au lobby');
+        setTimeout(() => router.replace('/'), 2000);
+      }
     };
 
     const handleRoomClosed = () => {
@@ -195,11 +241,57 @@ export default function GameRoomPage() {
     };
 
     const handleAuthError = (payload: { message?: string }) => {
-      setError(payload.message ?? 'Authentification requise');
-      clearAuth();
-      router.replace('/');
+      console.error('[GameRoom] ⚠️ Erreur d\'authentification reçue:', payload);
+      
+      // Ignorer les erreurs d'auth pendant qu'on essaie de rejoindre
+      // (probablement dues à l'ancien socket pendant le F5)
+      if (isJoiningRoom) {
+        console.log('[GameRoom] Erreur d\'auth ignorée - reconnexion en cours');
+        return;
+      }
+      
+      const socket = getSocket();
+      console.log('[GameRoom] Socket.connected:', socket.connected, '- Socket.id:', socket.id);
+      
+      // Attendre un peu pour voir si c'est juste une reconnexion
+      setTimeout(() => {
+        if (!socket.connected) {
+          console.log('[GameRoom] Socket toujours déconnecté après 1s - affichage de l\'erreur');
+          setError(payload.message ?? 'Authentification requise');
+          // Ne pas vider l'auth immédiatement, laisser l'utilisateur réessayer
+        } else {
+          console.log('[GameRoom] Socket reconnecté - erreur ignorée');
+        }
+      }, 1000);
     };
 
+    const handleConnect = () => {
+      console.log('[GameRoom] 🔌 Socket connecté, attente de la validation auth par le serveur...');
+      // Ne PAS émettre room:join ici - attendre room:list du serveur
+      // qui indique que l'authentification est validée
+    };
+
+    const handleRoomList = () => {
+      console.log('[GameRoom] ✅ room:list reçu - authentification validée par le serveur');
+      // Rejoindre la room seulement UNE FOIS
+      if (!hasJoinedRoomRef.current && !currentRoom) {
+        console.log('[GameRoom] Émission de room:join pour roomId:', roomId);
+        hasJoinedRoomRef.current = true;
+        setIsJoiningRoom(true);
+        socket.emit('room:join', { roomId });
+      } else {
+        console.log('[GameRoom] room:join déjà émis, ignoré');
+      }
+    };
+
+    const handleDisconnect = (reason: string) => {
+      console.warn('[GameRoom] 🔌 Socket déconnecté:', reason);
+      setIsJoiningRoom(false);
+    };
+
+    socket.on('connect', handleConnect);
+    socket.on('disconnect', handleDisconnect);
+    socket.on('room:list', handleRoomList);
     socket.on('room:joined', handleRoomJoined);
     socket.on('room:state', handleRoomState);
     socket.on('round:started', handleRoundStarted);
@@ -213,12 +305,28 @@ export default function GameRoomPage() {
     socket.on('draw:fill', handleDrawFill);
     socket.on('auth:error', handleAuthError);
 
-    if (!isMountedRef.current && user) {
-      socket.emit('room:join', { roomId });
-      isMountedRef.current = true;
+    // Si le socket est déjà connecté au moment du montage
+    console.log('[GameRoom] 🔍 Vérification état socket:', {
+      connected: socket.connected,
+      id: socket.id,
+      auth: socket.auth,
+      roomId,
+      timestamp: new Date().toISOString()
+    });
+    
+    if (socket.connected) {
+      console.log('[GameRoom] 🚀 Socket déjà connecté au montage');
+      // Demander explicitement room:list pour déclencher le flux d'authentification
+      socket.emit('room:list');
+    } else {
+      console.log('[GameRoom] ⏳ Socket pas encore connecté, attente de l\'événement connect...');
     }
 
     return () => {
+      console.log('[GameRoom] Nettoyage des listeners');
+      socket.off('connect', handleConnect);
+      socket.off('disconnect', handleDisconnect);
+      socket.off('room:list', handleRoomList);
       socket.off('room:joined', handleRoomJoined);
       socket.off('room:state', handleRoomState);
       socket.off('round:started', handleRoundStarted);
@@ -231,15 +339,9 @@ export default function GameRoomPage() {
       socket.off('draw:segment', handleDrawSegment);
       socket.off('draw:fill', handleDrawFill);
       socket.off('auth:error', handleAuthError);
+      hasJoinedRoomRef.current = false;
     };
-  }, [clearAuth, clearCanvas, drawPoints, roomId, router, setCurrentRoom, setPlayerId, setRound, user]);
-
-  useEffect(() => {
-    if (user && roomId && !isMountedRef.current) {
-      getSocket().emit('room:join', { roomId });
-      isMountedRef.current = true;
-    }
-  }, [roomId, user]);
+  }, [clearAuth, clearCanvas, drawPoints, roomId, router, setCurrentRoom, setPlayerId, setRound, user, hydrated, isJoiningRoom]);
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawer) return;
@@ -320,29 +422,156 @@ export default function GameRoomPage() {
     getSocket().emit('room:leave');
     setCurrentRoom(undefined);
     setRound(undefined);
+    setIsJoiningRoom(false);
     router.push('/');
   };
 
+  const setAuth = useAuthStore((state) => state.setAuth);
+
+  // Afficher la modal d'authentification si pas connecté
   useEffect(() => {
-    if (hydrated && !user) {
-      router.replace('/');
+    if (!hydrated) return;
+    
+    if (!user) {
+      console.log('[GameRoom] 🔑 Pas d\'utilisateur, affichage de la modal de connexion');
+      setShowAuthModal(true);
     }
-  }, [hydrated, router, user]);
+  }, [hydrated, user]);
+
+  const handleAuth = async () => {
+    setAuthError(undefined);
+    setAuthLoading(true);
+
+    try {
+      if (authMode === 'register') {
+        if (!authPseudo || !authEmail || !authPassword) {
+          setAuthError('Tous les champs sont requis');
+          setAuthLoading(false);
+          return;
+        }
+        const response = await register({ pseudo: authPseudo, email: authEmail, password: authPassword });
+        console.log('[GameRoom] ✅ Compte créé:', authPseudo);
+        setAuth(response);
+        setShowAuthModal(false);
+      } else {
+        if (!authEmail || !authPassword) {
+          setAuthError('Email/pseudo et mot de passe requis');
+          setAuthLoading(false);
+          return;
+        }
+        const response = await login({ identifier: authEmail, password: authPassword });
+        console.log('[GameRoom] ✅ Connecté:', response.user.pseudo);
+        setAuth(response);
+        setShowAuthModal(false);
+      }
+    } catch (error: any) {
+      console.error('[GameRoom] ❌ Erreur auth:', error);
+      setAuthError(error.response?.data?.message || error.message || 'Erreur de connexion');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
 
   if (!roomId || !hydrated) {
     return null;
   }
 
-  if (!user) {
-    return null;
-  }
-
   return (
+    <>
+      {/* Modal d'authentification */}
+      <Modal
+        opened={showAuthModal}
+        onClose={() => {}}
+        title="Connexion requise"
+        closeOnClickOutside={false}
+        closeOnEscape={false}
+        withCloseButton={false}
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            Vous devez être connecté pour rejoindre cette partie
+          </Text>
+
+          <Tabs value={authMode} onChange={(value) => setAuthMode(value as 'login' | 'register')}>
+            <Tabs.List grow>
+              <Tabs.Tab value="login">Connexion</Tabs.Tab>
+              <Tabs.Tab value="register">Inscription</Tabs.Tab>
+            </Tabs.List>
+
+            <Tabs.Panel value="login" pt="md">
+              <Stack gap="sm">
+                <TextInput
+                  label="Email ou Pseudo"
+                  placeholder="votre@email.com"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.currentTarget.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
+                />
+                <PasswordInput
+                  label="Mot de passe"
+                  placeholder="••••••••"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.currentTarget.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
+                />
+              </Stack>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="register" pt="md">
+              <Stack gap="sm">
+                <TextInput
+                  label="Pseudo"
+                  placeholder="VotrePseudo"
+                  value={authPseudo}
+                  onChange={(e) => setAuthPseudo(e.currentTarget.value)}
+                />
+                <TextInput
+                  label="Email"
+                  placeholder="votre@email.com"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.currentTarget.value)}
+                />
+                <PasswordInput
+                  label="Mot de passe"
+                  placeholder="••••••••"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.currentTarget.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
+                />
+              </Stack>
+            </Tabs.Panel>
+          </Tabs>
+
+          {authError && (
+            <Alert color="red" icon={<IconInfoCircle size={16} />}>
+              {authError}
+            </Alert>
+          )}
+
+          <Group grow>
+            <Button
+              variant="default"
+              onClick={() => router.push('/')}
+            >
+              Retour
+            </Button>
+            <Button
+              onClick={handleAuth}
+              loading={authLoading}
+            >
+              {authMode === 'login' ? 'Se connecter' : "S'inscrire"}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      {/* Contenu de la room */}
+      {user && (
     <Stack p="lg" gap="lg">
       <Group justify="space-between">
         <div>
           <Title order={2}>{currentRoom?.name ?? 'Salle de jeu'}</Title>
-          <Text c="dimmed">Manche {round ? 'en cours' : 'en attente'} · {word ? `Mot: ${word}` : round?.revealed}</Text>
+          <Text c="dimmed">Manche {round ? 'en cours' : 'en attente'}</Text>
         </div>
         <Button variant="subtle" onClick={handleLeaveRoom}>
           Quitter
@@ -358,14 +587,18 @@ export default function GameRoomPage() {
       <Group align="flex-start" justify="center" gap="lg" wrap="nowrap">
         {/* Colonne de gauche - Joueurs */}
         <Card withBorder padding="md" radius="md" style={{ width: 250, flexShrink: 0 }}>
-          <Title order={4}>Joueurs</Title>
+          <Title order={4} align="center">Joueurs</Title>
+          <Divider my="md" />
           <Stack gap={8} mt="sm">
             {currentRoom &&
               Object.values(currentRoom.players).map((player) => (
-                <Group key={player.id} justify="space-between">
-                  <Text size="sm">{player.name}</Text>
-                  <Stack gap={4}>
-                    {round?.drawerId === player.id && <Badge color="violet" size="xs">Dessine</Badge>}
+                <Group key={player.id} justify="space-between" opacity={player.connected ? 1 : 0.5}>
+                  <Group gap={4} align="center">
+                    <Text size="sm" fw={playerId === player.id ? 700 : 500}>{player.name}</Text>
+                    {round?.drawerId === player.id && <IconBrush size={16} style={{ display: "block", transform: "translateY(1px)" }} />}
+                    {!player.connected && <Text size="xs" c="dimmed">(déconnecté)</Text>}
+                  </Group>
+                  <Stack gap={4} align="flex-end">
                     <Badge variant={playerId === player.id ? 'filled' : 'light'} size="sm">
                       {player.score} pts
                     </Badge>
@@ -378,6 +611,11 @@ export default function GameRoomPage() {
         {/* Centre - Zone de dessin */}
         <Stack gap="sm" style={{ flexShrink: 0 }}>
           <Card withBorder padding="sm" radius="md">
+            {(word || round?.revealed) && (
+              <Text size="24px" fw={700} ta="center" mb="lg" style={{ letterSpacing: "0.2em" }}>
+                {word ? `${word}` : round?.revealed}
+              </Text>
+            )}
             <canvas
               ref={canvasRef}
               width={720}
@@ -413,12 +651,12 @@ export default function GameRoomPage() {
                     value={brushSize}
                     onChange={setBrushSize}
                     min={1}
-                    max={50}
+                    max={24}
                     step={1}
                     marks={[
                       { value: 1, label: '1' },
-                      { value: 25, label: '25' },
-                      { value: 50, label: '50' }
+                      { value: 12, label: '12' },
+                      { value: 24, label: '24' }
                     ]}
                   />
                 </Box>
@@ -467,7 +705,8 @@ export default function GameRoomPage() {
 
         {/* Colonne de droite - Discussion */}
         <Card withBorder padding="md" radius="md" style={{ width: 300, flexShrink: 0 }}>
-          <Title order={4}>Propositions</Title>
+          <Title order={4} align="center">Propositions</Title>
+          <Divider my="md" />
           <Stack gap={6} mt="sm" style={{ maxHeight: 400, overflowY: 'auto' }}>
             {guesses.map((message, index) => (
               <Text key={index} size="sm">
@@ -504,5 +743,7 @@ export default function GameRoomPage() {
         </Card>
       </Group>
     </Stack>
+      )}
+    </>
   );
 }

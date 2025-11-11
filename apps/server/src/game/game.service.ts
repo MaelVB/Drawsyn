@@ -34,13 +34,24 @@ export class GameService {
   joinRoom(context: JoinContext): JoinRoomResult {
     const room = this.lobby.getRoom(context.roomId);
     if (!room) {
+      this.logger.error(`joinRoom: Room ${context.roomId} not found`);
       throw new Error('Room not found');
     }
 
     const existing = room.players[context.userId];
-    if (!existing && Object.keys(room.players).length >= room.maxPlayers) {
+    const connectedPlayers = Object.values(room.players).filter(p => p.connected && p.id !== context.userId);
+    
+    if (existing) {
+      this.logger.log(`Player ${context.pseudo} reconnecting to room ${room.name} (score: ${existing.score})`);
+    } else {
+      this.logger.log(`New player ${context.pseudo} joining room ${room.name}`);
+    }
+    
+    if (!existing && connectedPlayers.length >= room.maxPlayers) {
+      this.logger.warn(`Room ${room.name} is full (${connectedPlayers.length}/${room.maxPlayers})`);
       throw new Error('Room is full');
     }
+    
     const player: PlayerState = existing
       ? {
           ...existing,
@@ -56,7 +67,10 @@ export class GameService {
         };
 
     room.players[player.id] = player;
+    room.lastActivityAt = Date.now();
     this.lobby.upsertRoom(room);
+
+    this.logger.log(`Room ${room.name} now has ${Object.values(room.players).filter(p => p.connected).length} connected players`);
 
     return { room, player };
   }
@@ -64,18 +78,28 @@ export class GameService {
   leaveRoom(roomId: string, playerId: string): RoomState | undefined {
     const room = this.lobby.getRoom(roomId);
     if (!room) {
+      this.logger.warn(`leaveRoom: Room ${roomId} not found`);
       return undefined;
     }
 
-    delete room.players[playerId];
-
-    if (Object.keys(room.players).length === 0) {
-      this.lobby.deleteRoom(roomId);
-      return undefined;
+    const player = room.players[playerId];
+    if (!player) {
+      this.logger.warn(`leaveRoom: Player ${playerId} not found in room ${roomId}`);
+      return room;
     }
 
+    this.logger.log(`Player ${player.name} (${playerId}) leaving room ${room.name} (${roomId})`);
+
+    // Marquer le joueur comme déconnecté au lieu de le supprimer
+    player.connected = false;
+    room.lastActivityAt = Date.now();
+
+    const connectedPlayers = Object.values(room.players).filter(p => p.connected);
+    this.logger.log(`Joueurs restants connectés: ${connectedPlayers.length}/${Object.keys(room.players).length}`);
+
+    // Si le dessinateur se déconnecte, annuler le round
     if (room.round?.drawerId === playerId) {
-      this.logger.warn(`Drawer ${playerId} left room ${roomId}, ending round`);
+      this.logger.warn(`Drawer ${player.name} left room ${room.name}, ending round`);
       room.round = undefined;
       room.status = 'lobby';
     }
@@ -89,11 +113,21 @@ export class GameService {
     return Boolean(room?.round && room.round.drawerId === playerId);
   }
 
+  updateRoomActivity(roomId: string): void {
+    const room = this.lobby.getRoom(roomId);
+    if (room) {
+      room.lastActivityAt = Date.now();
+      this.lobby.upsertRoom(room);
+    }
+  }
+
   submitGuess(playerId: string, dto: GuessDto) {
     const room = this.lobby.getRoom(dto.roomId);
     if (!room || !room.round) {
       return { correct: false, room: undefined };
     }
+
+    room.lastActivityAt = Date.now();
 
     const normalized = dto.text.trim().toLowerCase();
     const expected = room.round.word.toLowerCase();
@@ -121,11 +155,12 @@ export class GameService {
     const previousDrawerId = currentRound?.drawerId;
     if (currentRound) return currentRound;
 
-    const players = Object.values(room.players);
-    if (players.length < 2) return undefined;
+    // Ne compter que les joueurs connectés
+    const connectedPlayers = Object.values(room.players).filter(p => p.connected);
+    if (connectedPlayers.length < 2) return undefined;
 
-    const nextDrawer = this.pickDrawer(players, previousDrawerId);
-    players.forEach((p) => (p.isDrawing = false));
+    const nextDrawer = this.pickDrawer(connectedPlayers, previousDrawerId);
+    connectedPlayers.forEach((p) => (p.isDrawing = false));
     nextDrawer.isDrawing = true;
 
     const word = this.words[Math.floor(Math.random() * this.words.length)];
@@ -139,6 +174,7 @@ export class GameService {
 
     room.round = round;
     room.status = 'running';
+    room.lastActivityAt = Date.now();
     this.lobby.upsertRoom(room);
     return round;
   }

@@ -25,9 +25,10 @@ import type { RoomState } from '@/stores/game-store';
 
 export default function LobbyPage() {
   const router = useRouter();
-  const { user, token, setAuth, clearAuth } = useAuthStore((state) => ({
+  const { user, token, hydrated, setAuth, clearAuth } = useAuthStore((state) => ({
     user: state.user,
     token: state.token,
+    hydrated: state.hydrated,
     setAuth: state.setAuth,
     clearAuth: state.clearAuth
   }));
@@ -46,55 +47,71 @@ export default function LobbyPage() {
   const [authLoading, setAuthLoading] = useState(false);
 
   useEffect(() => {
-    if (!token) return;
+    // Attendre que l'hydratation soit complète et qu'on ait un token
+    if (!hydrated || !token) {
+      console.log('[Page] Pas encore hydraté ou pas de token');
+      return;
+    }
     
-    // Attendre un petit délai pour être sûr que le socket est bien initialisé
-    const timer = setTimeout(() => {
-      const socket = getSocket();
-      console.log('[Page] Configuration des listeners, socket.connected:', socket.connected);
+    const socket = getSocket();
+    console.log('[Page] Configuration des listeners, socket.connected:', socket.connected);
+    
+    const handleRooms = (payload: RoomState[]) => {
+      console.log('[Page] Liste des rooms reçue:', payload.length, 'rooms');
+      setRooms(payload);
+    };
+    
+    const handleCreated = (payload: { id: string }) => {
+      console.log('[Page] Room créée:', payload.id);
+      router.push(`/game/${payload.id}`);
+    };
+    
+    const handleAuthError = (payload: { message?: string }) => {
+      console.error('[Page] ⚠️ Erreur d\'authentification reçue:', payload);
+      console.log('[Page] Socket connecté ?', socket.connected);
+      console.log('[Page] Socket ID:', socket.id);
       
-      const handleRooms = (payload: RoomState[]) => {
-        console.log('[Page] Liste des rooms reçue:', payload.length, 'rooms');
-        setRooms(payload);
-      };
+      // Afficher l'erreur mais NE PAS vider l'auth immédiatement
+      // Il peut s'agir d'une reconnexion temporaire
+      setAuthError(payload.message ?? 'Erreur d\'authentification');
       
-      const handleCreated = (payload: { id: string }) => {
-        console.log('[Page] Room créée:', payload.id);
-        router.push(`/game/${payload.id}`);
-      };
-      
-      const handleAuthError = (payload: { message?: string }) => {
-        console.error('[Page] Erreur d\'authentification reçue:', payload);
-        setAuthError(payload.message ?? 'Session expirée, veuillez vous reconnecter.');
-        clearAuth();
-      };
-      
-      const handleConnect = () => {
-        console.log('[Page] Socket connecté, demande de la liste des rooms');
-        socket.emit('room:list');
-      };
-      
-      socket.on('connect', handleConnect);
-      socket.on('room:list', handleRooms);
-      socket.on('room:created', handleCreated);
-      socket.on('auth:error', handleAuthError);
-      
-      // Si déjà connecté, demander immédiatement
-      if (socket.connected) {
-        console.log('[Page] Socket déjà connecté');
-        socket.emit('room:list');
-      }
-    }, 100);
+      // Attendre 2 secondes pour voir si la connexion se rétablit
+      setTimeout(() => {
+        if (!socket.connected) {
+          console.log('[Page] Socket toujours déconnecté après 2s, nettoyage de l\'auth');
+          clearAuth();
+        } else {
+          console.log('[Page] Socket reconnecté, conservation de l\'auth');
+          setAuthError(undefined);
+        }
+      }, 2000);
+    };
+    
+    const handleConnect = () => {
+      console.log('[Page] ✅ Socket connecté - attente de room:list du serveur');
+      // Le serveur envoie automatiquement room:list après handleConnection
+      // Pas besoin de le demander explicitement ici
+    };
+    
+    // Installer les listeners
+    socket.on('connect', handleConnect);
+    socket.on('room:list', handleRooms);
+    socket.on('room:created', handleCreated);
+    socket.on('auth:error', handleAuthError);
+    
+    // Si déjà connecté, le serveur a déjà envoyé room:list
+    if (socket.connected) {
+      console.log('[Page] Socket déjà connecté');
+    }
     
     return () => {
-      clearTimeout(timer);
-      const socket = getSocket();
-      socket.off('connect');
-      socket.off('room:list');
-      socket.off('room:created');
-      socket.off('auth:error');
+      console.log('[Page] Nettoyage des listeners');
+      socket.off('connect', handleConnect);
+      socket.off('room:list', handleRooms);
+      socket.off('room:created', handleCreated);
+      socket.off('auth:error', handleAuthError);
     };
-  }, [clearAuth, router, setRooms, token]);
+  }, [clearAuth, router, setRooms, token, hydrated]);
 
   useEffect(() => {
     if (!token) {

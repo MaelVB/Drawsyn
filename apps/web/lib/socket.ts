@@ -8,35 +8,64 @@ let socket: Socket | undefined;
 
 export function getSocket() {
   if (!socket) {
+    console.log('[Socket] ⚠️ getSocket() appelé sans socket existant - création d\'un socket NON AUTHENTIFIÉ (pas recommandé)');
+    console.trace('[Socket] Stack trace de getSocket()');
     socket = io(SERVER_URL, {
       autoConnect: false,
-      transports: ['websocket']
+      transports: ['websocket'],
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 5
     });
   }
   return socket;
 }
 
 export function connectSocket(token: string) {
-  console.log('[Socket] Tentative de connexion avec token:', token.substring(0, 20) + '...');
-  const instance = getSocket();
+  console.log('[Socket] 🔐 Connexion avec token:', token.substring(0, 20) + '...');
   
-  // Déconnecter et nettoyer complètement
-  if (instance.connected) {
-    console.log('[Socket] Déconnexion de l\'instance actuelle');
-    instance.disconnect();
+  // IMPORTANT: Si un socket existe déjà, le détruire complètement
+  // car on ne peut pas changer le token après le premier handshake
+  if (socket) {
+    console.log('[Socket] 🗑️ Destruction du socket existant');
+    if (socket.connected) {
+      socket.disconnect();
+    }
+    socket.removeAllListeners();
+    // Force la fermeture complète de la connexion
+    socket.close();
+    socket = undefined;
   }
   
-  // IMPORTANT: Supprimer TOUS les listeners pour éviter les messages résiduels
-  console.log('[Socket] Suppression de tous les listeners');
-  instance.removeAllListeners();
+  // Créer un NOUVEAU socket avec le bon token
+  console.log('[Socket] 🆕 Création d\'un nouveau socket avec le token');
+  socket = io(SERVER_URL, {
+    autoConnect: false,
+    transports: ['websocket'],
+    reconnection: true,
+    reconnectionDelay: 1000,
+    reconnectionAttempts: 5,
+    auth: { token }  // ← Token défini DÈS la création
+  });
   
-  // Définir le nouveau token
-  instance.auth = { token };
-  console.log('[Socket] Token défini, connexion...');
+  console.log('[Socket] ✏️ Socket créé avec auth:', socket.auth);
   
-  instance.connect();
-  console.log('[Socket] Connexion lancée');
-  return instance;
+  // Ajouter des listeners de débogage AVANT la connexion
+  socket.on('connect', () => {
+    console.log('[Socket] ✅ CONNECTÉ avec succès! ID:', socket?.id);
+    console.log('[Socket] Auth envoyé:', socket?.auth);
+    console.log('[Socket] Timestamp:', new Date().toISOString());
+  });
+  
+  socket.on('connect_error', (error: Error) => {
+    console.error('[Socket] ❌ Erreur de connexion:', error.message);
+  });
+  
+  // Connecter
+  console.log('[Socket] 🚀 Lancement de la connexion... Timestamp:', new Date().toISOString());
+  socket.connect();
+  
+  return socket;
 }
 
 export function disconnectSocket() {
@@ -45,4 +74,30 @@ export function disconnectSocket() {
   if (socket.connected) {
     socket.disconnect();
   }
+}
+
+export function resetSocket() {
+  console.log('[Socket] Réinitialisation complète du socket');
+  if (socket) {
+    if (socket.connected) {
+      socket.disconnect();
+    }
+    socket.removeAllListeners();
+    socket = undefined;
+  }
+}
+
+// S'assurer que le socket est fermé proprement avant le rechargement de la page
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    console.log('[Socket] beforeunload - fermeture du socket');
+    if (socket) {
+      // Désactiver la reconnexion automatique avant de fermer
+      socket.io.opts.reconnection = false;
+      if (socket.connected) {
+        socket.disconnect();
+      }
+      socket.close();
+    }
+  });
 }

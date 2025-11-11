@@ -23,4 +23,5 @@ export interface RoomState {
   round?: RoundState;
   status: 'lobby' | 'running' | 'ended';
   createdAt: number;
+  lastActivityAt: number;
 }
