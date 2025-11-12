@@ -779,14 +779,15 @@ export default function GameRoomPage() {
                         value={brushSize}
                         onChange={setBrushSize}
                         min={1}
-                        max={24}
+                        max={20}
                         step={1}
                         marks={[
                           { value: 1, label: '1' },
-                          { value: 6, label: '6' },
+                          { value: 4, label: '4' },
+                          { value: 8, label: '8' },
                           { value: 12, label: '12' },
-                          { value: 18, label: '18' },
-                          { value: 24, label: '24' }
+                          { value: 16, label: '16' },
+                          { value: 20, label: '20' }
                         ]}
                       />
                     </Box>
@@ -827,7 +828,7 @@ export default function GameRoomPage() {
             </>
           )}
           <Divider my="md" />
-          <Stack gap={0} mt="sm" style={{ flex: 1, overflowY: 'auto' }}>
+          <Stack gap={0} style={{ flex: 1, overflowY: 'auto' }}>
             {guesses.map((message, index) => (
               <Box
                 key={index}
