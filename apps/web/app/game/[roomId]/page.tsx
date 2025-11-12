@@ -622,23 +622,37 @@ export default function GameRoomPage() {
         {/* Colonne de gauche - Joueurs */}
         <Card withBorder padding="md" radius="md" style={{ width: 250, flexShrink: 0 }}>
           <Title order={4} ta="center">Joueurs</Title>
+          <Text ta="center" size="sm" c="dimmed" mt={4}>
+            {currentRoom?.connectedPlayers ?? 0} / {currentRoom?.maxPlayers ?? 0} connectés
+          </Text>
           <Divider my="md" />
           <Stack gap={8} mt="sm">
             {currentRoom &&
-              Object.values(currentRoom.players).map((player) => (
-                <Group key={player.id} justify="space-between" opacity={player.connected ? 1 : 0.5}>
-                  <Group gap={4} align="center">
-                    <Text size="sm" fw={playerId === player.id ? 700 : 500}>{player.name}</Text>
-                    {round?.drawerId === player.id && <IconBrush size={16} style={{ display: "block", transform: "translateY(1px)" }} />}
-                    {!player.connected && <Text size="xs" c="dimmed">(déconnecté)</Text>}
+              Object.values(currentRoom.players).map((player) => {
+                const orderNumber = currentRoom.drawerOrder 
+                  ? currentRoom.drawerOrder.indexOf(player.id) + 1 
+                  : null;
+                return (
+                  <Group key={player.id} justify="space-between" opacity={player.connected ? 1 : 0.5}>
+                    <Group gap={4} align="center">
+                      {orderNumber && (
+                        <Text size="sm" c="dimmed" fw={500}>{orderNumber}.</Text>
+                      )}
+                      <Text size="sm" fw={playerId === player.id ? 700 : 500}>{player.name}</Text>
+                      {currentRoom.hostId === player.id && (
+                        <Badge size="xs" color="yellow" variant="light">Hôte</Badge>
+                      )}
+                      {round?.drawerId === player.id && <IconBrush size={16} style={{ display: "block", transform: "translateY(1px)" }} />}
+                      {!player.connected && <Text size="xs" c="dimmed">(déconnecté)</Text>}
+                    </Group>
+                    <Stack gap={4} align="flex-end">
+                      <Badge variant={playerId === player.id ? 'filled' : 'light'} size="sm">
+                        {player.score} pts
+                      </Badge>
+                    </Stack>
                   </Group>
-                  <Stack gap={4} align="flex-end">
-                    <Badge variant={playerId === player.id ? 'filled' : 'light'} size="sm">
-                      {player.score} pts
-                    </Badge>
-                  </Stack>
-                </Group>
-              ))}
+                );
+              })}
           </Stack>
         </Card>
 
@@ -647,17 +661,21 @@ export default function GameRoomPage() {
           {round ? (
             <>
               <Card withBorder padding="md" radius="md">
-                <Group justify="space-between" align="flex-start">
-                  <Text>
-                    {`Round ${currentRoom.currentRound}/${currentRoom.totalRounds}`}
-                  </Text>
-                  {(word || round?.revealed) && (
-                    <Text size="24px" fw={700} ta="center" style={{ letterSpacing: "0.2em" }}>
-                      {word ? `${word}` : round?.revealed}
+                <Stack>
+                  <Group justify="space-between" align="flex-start">
+                    {(word || round?.revealed) && (
+                      <Text size="24px" fw={700} ta="center" style={{ letterSpacing: "0.2em" }}>
+                        {word ? `${word}` : round?.revealed}
+                      </Text>
+                    )}
+                  </Group>
+                  <Group justify="space-between" align="flex-start">
+                    <Text>
+                      {`Round ${currentRoom?.currentRound ?? 0}/${currentRoom?.totalRounds ?? 0}`}
                     </Text>
-                  )}
-                  <Text>{Math.max(0, Math.round((round.roundEndsAt - Date.now()) / 1000))}s</Text>
-                </Group>
+                    <Text size="24px" fw={700}>{Math.max(0, Math.round((round.roundEndsAt - Date.now()) / 1000))}s</Text>
+                  </Group>
+                </Stack>
                 <Divider my="md" />
                 <canvas
                   ref={canvasRef}
@@ -749,7 +767,18 @@ export default function GameRoomPage() {
 
         {/* Colonne de droite - Discussion */}
         <Card withBorder padding="md" radius="md" style={{ width: 300, flexShrink: 0 }}>
-          <Title order={4} ta="center">{round ? 'Propositions' : 'Lobby & Chat'}</Title>
+          <Title order={4} ta="center">{round ? 'Propositions' : 'Tchat'}</Title>
+          {round && (
+            <>
+              <Text ta="center" size="sm" c="dimmed" mt={4}>
+                {(() => {
+                  if (!currentRoom?.drawerOrder || !round?.drawerId) return '';
+                  const idx = currentRoom.drawerOrder.findIndex((id: string) => id === round.drawerId);
+                  return `Joueur ${idx + 1} - Round ${currentRoom.currentRound ?? 0}/${currentRoom.totalRounds ?? 0}`;
+                })()}
+              </Text>
+            </>
+          )}
           <Divider my="md" />
           <Stack gap={6} mt="sm" style={{ maxHeight: 400, overflowY: 'auto' }}>
             {guesses.map((message, index) => (

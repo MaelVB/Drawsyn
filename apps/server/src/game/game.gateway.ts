@@ -84,11 +84,12 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('room:create')
   handleCreateRoom(@ConnectedSocket() client: Socket, @MessageBody() dto: CreateRoomDto) {
-    if (!this.connections.has(client.id)) {
+    const connection = this.connections.get(client.id);
+    if (!connection) {
       client.emit('auth:error', { message: 'Authentification requise' });
       return;
     }
-    const room = this.game.createRoom(dto);
+    const room = this.game.createRoom(dto, connection.userId);
     client.emit('room:created', room);
     this.broadcastLobby();
   }
@@ -142,12 +143,12 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() dto: UpdateRoomSettingsDto
   ) {
     const connection = this.connections.get(client.id);
-    if (!connection || !connection.roomId) {
+    if (!connection || !connection.roomId || !connection.playerId) {
       client.emit('auth:error', { message: 'Authentification requise' });
       return;
     }
     try {
-      const room = this.game.updateRoomSettings(connection.roomId, dto);
+      const room = this.game.updateRoomSettings(connection.roomId, connection.playerId, dto);
       this.emitRoomState(room.id);
       this.broadcastLobby();
     } catch (error) {
@@ -158,12 +159,12 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('game:start')
   handleStartGame(@ConnectedSocket() client: Socket) {
     const connection = this.connections.get(client.id);
-    if (!connection || !connection.roomId) {
+    if (!connection || !connection.roomId || !connection.playerId) {
       client.emit('auth:error', { message: 'Authentification requise' });
       return;
     }
     try {
-      this.game.startGame(connection.roomId);
+      this.game.startGame(connection.roomId, connection.playerId);
       this.emitRoomState(connection.roomId);
     } catch (error) {
       client.emit('room:error', { message: (error as Error).message });
@@ -273,7 +274,14 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private emitRoomState(roomId: string) {
     const room = this.game.listRooms().find((entry) => entry.id === roomId);
     if (room) {
-      this.server.to(roomId).emit('room:state', room);
+      // Calculer le nombre de joueurs connectés et le nombre total
+      const totalPlayers = Object.keys(room.players).length;
+      const connectedPlayers = Object.values(room.players).filter(p => p.connected).length;
+      this.server.to(roomId).emit('room:state', {
+        ...room,
+        connectedPlayers,
+        totalPlayers
+      });
     }
   }
 

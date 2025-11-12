@@ -20,7 +20,18 @@ export interface RoomState {
   createdAt: number;
   totalRounds?: number;
   currentRound?: number;
+  hostId?: string;
+  connectedPlayers?: number;
+  totalPlayers?: number;
+  drawerOrder?: string[];
+  round?: {
+    drawerId: string;
+    roundEndsAt: number;
+    revealed: string;
+    guessedPlayerIds?: string[];
+  };
 }
+
 
 export interface RoundState {
   drawerId: string;

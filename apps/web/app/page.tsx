@@ -284,7 +284,7 @@ export default function LobbyPage() {
                 disabled={!user}
               />
               <NumberInput
-                label="Durée d'une manche (secondes)"
+                label="Durée d'une manche (en secondes)"
                 min={30}
                 max={240}
                 value={roundDuration}

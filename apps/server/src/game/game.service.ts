@@ -31,20 +31,25 @@ export class GameService {
     return this.lobby.listRooms();
   }
 
-  createRoom(dto: CreateRoomDto): RoomState {
+  createRoom(dto: CreateRoomDto, hostId: string): RoomState {
     return this.lobby.createRoom({
       name: dto.name,
       maxPlayers: dto.maxPlayers,
       roundDuration: dto.roundDuration,
-      totalRounds: dto.totalRounds
+      totalRounds: dto.totalRounds,
+      hostId
     });
   }
 
-  updateRoomSettings(roomId: string, dto: UpdateRoomSettingsDto): RoomState {
+  updateRoomSettings(roomId: string, playerId: string, dto: UpdateRoomSettingsDto): RoomState {
     const room = this.lobby.getRoom(roomId);
     if (!room) {
       this.logger.warn(`updateRoomSettings: Room ${roomId} not found`);
       throw new Error('Room not found');
+    }
+    if (room.hostId !== playerId) {
+      this.logger.warn(`updateRoomSettings: Player ${playerId} is not the host of room ${roomId}`);
+      throw new Error('Seul l\'hôte peut modifier les paramètres de la room');
     }
     if (room.status !== 'lobby') {
       this.logger.warn(`updateRoomSettings: Cannot update settings while game running (${room.status})`);
@@ -139,15 +144,26 @@ export class GameService {
     const connectedPlayers = Object.values(room.players).filter(p => p.connected);
     this.logger.log(`Joueurs restants connectés: ${connectedPlayers.length}/${Object.keys(room.players).length}`);
 
-    // Si le dessinateur se déconnecte, annuler le round
-    if (room.round?.drawerId === playerId) {
-      this.logger.warn(`Drawer ${player.name} left room ${room.name}, ending round`);
-      this.cancelCurrentTurn(room, 'cancelled');
+    // Si l'hôte quitte, transférer le rôle au joueur suivant
+    if (room.hostId === playerId && connectedPlayers.length > 0) {
+      const newHost = connectedPlayers[0];
+      room.hostId = newHost.id;
+      this.logger.log(`Host ${player.name} left, transferring to ${newHost.name} (${newHost.id})`);
     }
 
-    // Si plus aucun joueur connecté, arrêter le timer
+    // Si le dessinateur se déconnecte pendant un round, passer au tour suivant
+    if (room.round?.drawerId === playerId && room.status === 'running') {
+      this.logger.warn(`Drawer ${player.name} left room ${room.name}, skipping to next turn`);
+      this.endTurn(room.id, 'drawer-disconnected');
+    }
+
+    // Si plus aucun joueur connecté, arrêter le timer et retourner au lobby
     if (connectedPlayers.length === 0) {
       this.clearTimer(room.id);
+      if (room.status === 'running') {
+        room.status = 'lobby';
+        room.round = undefined;
+      }
     }
 
     this.lobby.upsertRoom(room);
@@ -209,8 +225,8 @@ export class GameService {
         .map(p => p.id);
     }
     if (room.currentDrawerIndex == null || room.currentDrawerIndex < 0) {
-      // La partie commence par le dernier à avoir rejoint
-      room.currentDrawerIndex = room.drawerOrder.length - 1;
+      // La partie commence par le premier à avoir rejoint
+      room.currentDrawerIndex = 0;
     }
     const drawerId = room.drawerOrder[room.currentDrawerIndex];
     const drawer = room.players[drawerId];
@@ -292,6 +308,16 @@ export class GameService {
       scores: Object.values(room.players)
     });
 
+    // Vérifier s'il reste des joueurs connectés
+    const connectedPlayers = Object.values(room.players).filter(p => p.connected);
+    if (connectedPlayers.length === 0) {
+      this.logger.warn(`No connected players left in room ${room.name}, returning to lobby`);
+      room.status = 'lobby';
+      room.round = undefined;
+      this.lobby.upsertRoom(room);
+      return;
+    }
+
     // Avancer index en sautant les déconnectés
     if (room.drawerOrder && room.currentDrawerIndex != null) {
       const order = room.drawerOrder;
@@ -301,6 +327,16 @@ export class GameService {
         nextIndex = (nextIndex + 1) % order.length;
         safety++;
       }
+      
+      // Si on a parcouru tout le tableau sans trouver de joueur connecté
+      if (safety >= order.length && !room.players[order[nextIndex]]?.connected) {
+        this.logger.warn(`No connected drawer found in room ${room.name}, returning to lobby`);
+        room.status = 'lobby';
+        room.round = undefined;
+        this.lobby.upsertRoom(room);
+        return;
+      }
+      
       const completedCycle = nextIndex === 0; // Retour au début => round complet
       room.currentDrawerIndex = nextIndex;
       if (completedCycle) {
@@ -343,9 +379,13 @@ export class GameService {
     this.lobby.upsertRoom(room);
   }
 
-  startGame(roomId: string) {
+  startGame(roomId: string, playerId: string) {
     const room = this.lobby.getRoom(roomId);
     if (!room) throw new Error('Room not found');
+    if (room.hostId !== playerId) {
+      this.logger.warn(`startGame: Player ${playerId} is not the host of room ${roomId}`);
+      throw new Error('Seul l\'hôte peut lancer la partie');
+    }
     if (room.status !== 'lobby') {
       return room.round; // Déjà en cours
     }

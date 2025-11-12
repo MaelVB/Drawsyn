@@ -35,4 +35,5 @@ export interface RoomState {
   currentRound?: number; // démarre à 1
   drawerOrder?: string[]; // séquence déterministe des joueurs
   currentDrawerIndex?: number; // index actuel dans drawerOrder
+  hostId?: string; // ID du joueur hôte (celui qui peut configurer et lancer la partie)
 }
