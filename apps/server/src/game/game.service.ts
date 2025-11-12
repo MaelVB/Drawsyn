@@ -21,7 +21,7 @@ export interface JoinRoomResult {
 @Injectable()
 export class GameService {
   private readonly logger = new Logger(GameService.name);
-  private readonly words = ['maison', 'chat', 'lune', 'ordinateur', 'montagne', 'licorne'];
+  private readonly words = ['anticonstitutionnellement', 'bibliothèque', 'arc-en-ciel'];
   private server?: Server; // Attaché par le gateway pour pouvoir émettre des events
   private readonly timers = new Map<string, NodeJS.Timeout>();
 

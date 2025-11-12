@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   Alert,
@@ -20,7 +20,8 @@ import {
   PasswordInput,
   Tabs,
   Divider,
-  Flex
+  Flex,
+  useComputedColorScheme
 } from '@mantine/core';
 import { IconInfoCircle, IconBrush, IconEraser, IconBucket } from '@tabler/icons-react';
 import LobbySettings from '@/components/LobbySettings';
@@ -49,9 +50,11 @@ export default function GameRoomPage() {
   }));
   const clearAuth = useAuthStore((state) => state.clearAuth);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const centerCardRef = useRef<HTMLDivElement | null>(null);
   const currentStroke = useRef<{ x: number; y: number; t: number }[]>([]);
   const hasJoinedRoomRef = useRef(false);
   const [isJoiningRoom, setIsJoiningRoom] = useState(false);
+  const [rightPanelHeight, setRightPanelHeight] = useState<number | 'auto'>('auto');
 
   const { currentRoom, playerId, round, setCurrentRoom, setPlayerId, setRound, updateRoundRemaining } = useGameStore(
     (state) => ({
@@ -83,6 +86,8 @@ export default function GameRoomPage() {
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState<string | undefined>();
   const [authLoading, setAuthLoading] = useState(false);
+  const colorScheme = useComputedColorScheme('light', { getInitialValueInEffect: true });
+  const altMessageBg = useMemo(() => (colorScheme === 'dark' ? 'var(--mantine-color-dark-5)' : 'var(--mantine-color-gray-2)'), [colorScheme]);
 
   const isDrawer = useMemo(() => round && playerId ? round.drawerId === playerId : false, [round, playerId]);
 
@@ -429,6 +434,20 @@ export default function GameRoomPage() {
     currentStroke.current = [];
   };
 
+  // Synchroniser la hauteur du panneau de droite avec la carte centrale (canvas)
+  useLayoutEffect(() => {
+    const updateHeight = () => {
+      if (centerCardRef.current) {
+        setRightPanelHeight(centerCardRef.current.offsetHeight);
+      } else {
+        setRightPanelHeight('auto');
+      }
+    };
+    updateHeight();
+    window.addEventListener('resize', updateHeight);
+    return () => window.removeEventListener('resize', updateHeight);
+  }, [round, word, guesses.length]);
+
   const handleSubmitGuess = () => {
     if (!guessText.trim() || !roomId) return;
     getSocket().emit('guess:submit', { roomId, text: guessText });
@@ -600,10 +619,10 @@ export default function GameRoomPage() {
         <div>
           <Title order={2}>{currentRoom?.name ?? 'Salle de jeu'}</Title>
           <Text c="dimmed">
-            {currentRoom?.currentRound >= currentRoom?.totalRounds && !round
+            {(currentRoom?.currentRound ?? 0) >= (currentRoom?.totalRounds ?? 0) && !round
               ? 'Jeu terminé'
               : round
-                ? 'Manche en cours'
+                ? `Manche en cours - Round ${currentRoom?.currentRound ?? 0}/${currentRoom?.totalRounds ?? 0}`
                 : 'En attente'}
           </Text>
         </div>
@@ -660,22 +679,39 @@ export default function GameRoomPage() {
         <Stack gap="sm" style={{ flexShrink: 0 }}>
           {round ? (
             <>
-              <Card withBorder padding="md" radius="md">
-                <Stack>
-                  <Group justify="space-between" align="flex-start">
-                    {(word || round?.revealed) && (
-                      <Text size="24px" fw={700} ta="center" style={{ letterSpacing: "0.2em" }}>
-                        {word ? `${word}` : round?.revealed}
-                      </Text>
-                    )}
-                  </Group>
-                  <Group justify="space-between" align="flex-start">
-                    <Text>
-                      {`Round ${currentRoom?.currentRound ?? 0}/${currentRoom?.totalRounds ?? 0}`}
+              <Card withBorder padding="md" radius="md" ref={centerCardRef}>
+                {/* En-tête de manche: mot centré, round à gauche, timer à droite sur la même ligne */}
+                <Box style={{ position: 'relative', height: 40 }}>
+                  {/* Gauche: Round */}
+                  <Text
+                    size="20px"
+                    fw={700}
+                    style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)' }}
+                  >
+                    {`${currentRoom?.currentRound ?? 0}/${currentRoom?.totalRounds ?? 0}`}
+                  </Text>
+
+                  {/* Centre: Mot à deviner, reste parfaitement centré */}
+                  {(word || round?.revealed) && (
+                    <Text
+                      size="24px"
+                      fw={700}
+                      ta="center"
+                      style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', letterSpacing: '0.2em', whiteSpace: 'nowrap' }}
+                    >
+                      {word ? `${word}` : round?.revealed}
                     </Text>
-                    <Text size="24px" fw={700}>{Math.max(0, Math.round((round.roundEndsAt - Date.now()) / 1000))}s</Text>
-                  </Group>
-                </Stack>
+                  )}
+
+                  {/* Droite: Timer */}
+                  <Text
+                    size="20px"
+                    fw={700}
+                    style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)' }}
+                  >
+                    {Math.max(0, Math.round((round.roundEndsAt - Date.now()) / 1000))}s
+                  </Text>
+                </Box>
                 <Divider my="md" />
                 <canvas
                   ref={canvasRef}
@@ -766,7 +802,18 @@ export default function GameRoomPage() {
         </Stack>
 
         {/* Colonne de droite - Discussion */}
-        <Card withBorder padding="md" radius="md" style={{ width: 300, flexShrink: 0 }}>
+        <Card
+          withBorder
+          padding="md"
+          radius="md"
+          style={{
+            width: 300,
+            flexShrink: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            height: rightPanelHeight === 'auto' ? 'auto' : `${rightPanelHeight}px`
+          }}
+        >
           <Title order={4} ta="center">{round ? 'Propositions' : 'Tchat'}</Title>
           {round && (
             <>
@@ -774,25 +821,34 @@ export default function GameRoomPage() {
                 {(() => {
                   if (!currentRoom?.drawerOrder || !round?.drawerId) return '';
                   const idx = currentRoom.drawerOrder.findIndex((id: string) => id === round.drawerId);
-                  return `Joueur ${idx + 1} - Round ${currentRoom.currentRound ?? 0}/${currentRoom.totalRounds ?? 0}`;
+                  return `Dessinateur : Joueur ${idx + 1} - ${currentRoom.players[round.drawerId]?.name ?? ''}`;
                 })()}
               </Text>
             </>
           )}
           <Divider my="md" />
-          <Stack gap={6} mt="sm" style={{ maxHeight: 400, overflowY: 'auto' }}>
+          <Stack gap={0} mt="sm" style={{ flex: 1, overflowY: 'auto' }}>
             {guesses.map((message, index) => (
-              <Text key={index} size="sm">
-                <strong>
-                  {message.playerId === 'system'
-                    ? 'Système'
-                    : message.playerId === playerId || message.playerId === 'self'
-                      ? 'Vous'
-                      : currentRoom?.players[message.playerId]?.name ?? '???'}
-                  :
-                </strong>{' '}
-                {message.text}
-              </Text>
+              <Box
+                key={index}
+                p="xs"
+                style={{
+                  backgroundColor: index % 2 === 0 ? 'transparent' : altMessageBg,
+                  borderRadius: 6
+                }}
+              >
+                <Text size="sm">
+                  <strong>
+                    {message.playerId === 'system'
+                      ? 'Système'
+                      : message.playerId === playerId || message.playerId === 'self'
+                        ? 'Vous'
+                        : currentRoom?.players[message.playerId]?.name ?? '???'}
+                    :
+                  </strong>{' '}
+                  {message.text}
+                </Text>
+              </Box>
             ))}
           </Stack>
           <Group mt="md" gap="xs">

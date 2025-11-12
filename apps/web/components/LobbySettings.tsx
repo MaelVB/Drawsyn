@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Card, Group, NumberInput, Stack, Text, Title, Alert, Divider, Badge } from '@mantine/core';
-import { IconInfoCircle, IconCrown } from '@tabler/icons-react';
+import { Button, Card, Group, NumberInput, Stack, Text, Title, Alert, Divider, Badge, TextInput, ActionIcon, Flex, Box } from '@mantine/core';
+import { IconInfoCircle, IconCrown, IconCopy, IconCheck } from '@tabler/icons-react';
 
 import { getSocket } from '@/lib/socket';
 import type { RoomState } from '@/stores/game-store';
@@ -19,6 +19,13 @@ export default function LobbySettings({ room }: Props) {
   const [totalRounds, setTotalRounds] = useState<number | ''>(room.totalRounds ?? 3);
   const [error, setError] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Générer l'URL de la room
+  const roomUrl = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    return `${window.location.origin}/game/${room.id}`;
+  }, [room.id]);
 
   // Synchroniser les valeurs locales avec les changements de la room
   useEffect(() => {
@@ -67,21 +74,51 @@ export default function LobbySettings({ room }: Props) {
     setTimeout(() => setLoading(false), 300);
   };
 
+  const handleCopyUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(roomUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Erreur lors de la copie:', err);
+    }
+  };
+
   return (
     <Card withBorder padding="md" radius="md" style={{ width: 720 }}>
-      <Group justify="space-between" mb="md">
-        <Title order={4}>Paramètres de la partie</Title>
-        {hostPlayer && (
-          <Badge
-            size="lg"
-            variant="light"
-            leftSection={<IconCrown size={14} />}
-            color={isHost ? "yellow" : "gray"}
-          >
-            Hôte : {hostPlayer.name}
-          </Badge>
-        )}
-      </Group>
+      <Flex justify="space-between" align="center" mb="sm">
+        {/* Hôte à gauche */}
+        <Box style={{ minWidth: 150 }}>
+          {hostPlayer && (
+            <Badge
+              size="lg"
+              variant="light"
+              leftSection={<IconCrown size={14} />}
+              color={isHost ? "yellow" : "gray"}
+            >
+              Hôte : {hostPlayer.name}
+            </Badge>
+          )}
+        </Box>
+
+        {/* Titre au centre */}
+        <Title order={4} style={{ textAlign: 'center' }}>
+          Paramètres de la partie
+        </Title>
+
+        {/* Bouton unique copier URL (texte + icône à droite) */}
+        <Button
+          variant="light"
+          color={copied ? "green" : "blue"}
+          onClick={handleCopyUrl}
+          size="sm"
+          rightSection={copied ? <IconCheck size={18} /> : <IconCopy size={18} />}
+          style={{ minWidth: 150 }}
+          title="Copier le lien de la room"
+        >
+          Copier URL
+        </Button>
+      </Flex>
       <Divider my="md" />
       <Stack gap="md">
         {!isHost && (
