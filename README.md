@@ -42,3 +42,23 @@ Par défaut, le serveur écoute sur `http://localhost:3333` et le client web sur
 - Architecture extensible : Redis branché en provider global, Mongoose prêt pour la persistance longue durée.
 
 Ce squelette sert de base ; libre à vous d'ajouter persistance complète, anti-triche, modération, mini-jeux, etc.
+
+## Système d'items (boutique + inventaire)
+
+Un premier système d'items factorisé a été ajouté côté serveur et client.
+
+- Définition des items côté serveur: `apps/server/src/game/items/items.registry.ts` (catalogue).
+- Les joueurs achètent via la boutique (modal en bas) ; le coût est déduit de leur score.
+- Les items achetés apparaissent dans la barre d'inventaire (7 derniers visibles).
+- Premier item disponible: "Improvisation" (100 points) qui permet au dessinateur de saisir manuellement le mot pendant la phase de choix.
+
+Événements Socket côté client:
+- `items:list` (req/réponse): obtenir le catalogue d'items disponible.
+- `shop:buy` (req): acheter un item `{ itemId }`.
+- `shop:purchased` (evt privé): confirmation d'achat avec l'item et le score restant.
+- `item:use` (req): utiliser un item par instance `{ instanceId, params }`.
+
+Flux Improvisation:
+1. Le dessinateur ouvre la boutique, achète Improvisation (100 pts).
+2. Dans la barre d'inventaire, il clique l'item et saisit le mot.
+3. Le serveur démarre immédiatement la manche avec ce mot, notifie `round:started` à tous et `round:word` au dessinateur.

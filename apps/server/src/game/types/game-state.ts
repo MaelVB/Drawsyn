@@ -6,6 +6,8 @@ export interface PlayerState {
   connected: boolean;
   // Ordre d'arrivée dans la room (sert à déterminer l'ordre des dessinateurs)
   joinOrder?: number;
+  // Inventaire du joueur (nouveau système d'items)
+  inventory?: PlayerItem[];
 }
 
 export interface RoundState {
@@ -31,7 +33,7 @@ export interface RoomState {
   roundDuration: number;
   players: Record<string, PlayerState>;
   round?: RoundState;
-  status: 'lobby' | 'running' | 'ended';
+  status: 'lobby' | 'choosing' | 'running' | 'ended';
   createdAt: number;
   lastActivityAt: number;
   // Configuration du nombre total de rounds (une "rotation" complète des joueurs = 1 round)
@@ -40,4 +42,25 @@ export interface RoomState {
   drawerOrder?: string[]; // séquence déterministe des joueurs
   currentDrawerIndex?: number; // index actuel dans drawerOrder
   hostId?: string; // ID du joueur hôte (celui qui peut configurer et lancer la partie)
+  // Mots proposés au dessinateur lors de la phase de choix
+  pendingWordChoices?: string[];
+  // Instance pré-consommée de l'item Improvisation (pour saisie du mot)
+  pendingImprovisationInstanceId?: string;
+}
+
+// ===================== Items =====================
+export type ItemId = 'improvisation';
+
+export interface GameItemDef {
+  id: ItemId;
+  name: string;
+  description: string;
+  cost: number; // coût en score
+}
+
+export interface PlayerItem {
+  instanceId: string; // identifiant unique d'instance
+  itemId: ItemId;
+  acquiredAt: number;
+  consumed?: boolean;
 }

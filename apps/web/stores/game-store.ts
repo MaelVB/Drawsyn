@@ -8,6 +8,7 @@ export interface PlayerState {
   score: number;
   isDrawing: boolean;
   connected: boolean;
+  inventory?: PlayerItem[];
 }
 
 export interface RoomState {
@@ -16,7 +17,7 @@ export interface RoomState {
   maxPlayers: number;
   roundDuration: number;
   players: Record<string, PlayerState>;
-  status: 'lobby' | 'running' | 'ended';
+  status: 'lobby' | 'choosing' | 'running' | 'ended';
   createdAt: number;
   totalRounds?: number;
   currentRound?: number;
@@ -24,6 +25,7 @@ export interface RoomState {
   connectedPlayers?: number;
   totalPlayers?: number;
   drawerOrder?: string[];
+  currentDrawerIndex?: number;
   round?: {
     drawerId: string;
     roundEndsAt: number;
@@ -45,19 +47,39 @@ interface GameStore {
   currentRoom?: RoomState;
   playerId?: string;
   round?: RoundState;
+  itemsCatalog: GameItemDef[];
   setRooms: (rooms: RoomState[]) => void;
   setCurrentRoom: (room?: RoomState) => void;
   setPlayerId: (playerId?: string) => void;
   setRound: (round?: RoundState) => void;
   updateRoundRemaining: (remaining: number) => void;
+  setItemsCatalog: (items: GameItemDef[]) => void;
+}
+
+export type ItemId = 'improvisation';
+
+export interface GameItemDef {
+  id: ItemId;
+  name: string;
+  description: string;
+  cost: number;
+}
+
+export interface PlayerItem {
+  instanceId: string;
+  itemId: ItemId;
+  acquiredAt: number;
+  consumed?: boolean;
 }
 
 export const useGameStore = create<GameStore>((set) => ({
   rooms: [],
+  itemsCatalog: [],
   setRooms: (rooms) => set({ rooms }),
   setCurrentRoom: (room) => set({ currentRoom: room }),
   setPlayerId: (playerId) => set({ playerId }),
   setRound: (round) => set({ round })
   ,
-  updateRoundRemaining: (remaining) => set((state) => state.round ? ({ round: { ...state.round, roundEndsAt: Date.now() + remaining * 1000 } }) : {})
+  updateRoundRemaining: (remaining) => set((state) => state.round ? ({ round: { ...state.round, roundEndsAt: Date.now() + remaining * 1000 } }) : {}),
+  setItemsCatalog: (items) => set({ itemsCatalog: items })
 }));

@@ -1,68 +1,179 @@
 'use client';
 
-import { useState } from 'react';
-import { Box, Group, Paper, UnstyledButton, Transition } from '@mantine/core';
-import { IconChevronUp, IconChevronDown } from '@tabler/icons-react';
-
-interface InventorySlot {
-  id: number;
-  content?: React.ReactNode;
-  isEmpty?: boolean;
-}
+import { useEffect, useMemo, useState } from 'react';
+import { Box, Group, Paper, UnstyledButton, Modal, Title, SimpleGrid, Text, Stack, Badge, Button } from '@mantine/core';
+import { IconPin, IconPinFilled, IconBuildingStore } from '@tabler/icons-react';
+import { notifications } from '@mantine/notifications';
+import { getSocket } from '@/lib/socket';
+import { useGameStore } from '@/stores/game-store';
 
 interface InventoryBarProps {
-  slots?: InventorySlot[];
-  onSlotClick?: (slotId: number) => void;
+  onRequestImprovisation?: (instanceId: string) => void;
 }
 
-export default function InventoryBar({ slots, onSlotClick }: InventoryBarProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+export default function InventoryBar({ onRequestImprovisation }: InventoryBarProps) {
+  // isCompact = mode permanent (true = compact, false = ouvert)
+  const [isCompact, setIsCompact] = useState(true);
+  // isHovered = déplié temporairement au survol
+  const [isHovered, setIsHovered] = useState(false);
+  // Modal de la boutique
+  const [isShopOpen, setIsShopOpen] = useState(false);
 
-  // Créer 7 emplacements par défaut si aucun n'est fourni
-  const inventorySlots: InventorySlot[] = slots || Array.from({ length: 7 }, (_, i) => ({
-    id: i + 1,
-    isEmpty: true
+  const { currentRoom, playerId, itemsCatalog, setItemsCatalog } = useGameStore((s) => ({
+    currentRoom: s.currentRoom,
+    playerId: s.playerId,
+    itemsCatalog: s.itemsCatalog,
+    setItemsCatalog: s.setItemsCatalog
   }));
 
+  const player = useMemo(() => (playerId && currentRoom ? currentRoom.players[playerId] : undefined), [currentRoom, playerId]);
+  const inventory = player?.inventory ?? [];
+  const score = player?.score ?? 0;
+  // Est dessinateur: soit pendant une manche, soit pendant la phase de choix via drawerOrder/currentDrawerIndex
+  const isDrawer = useMemo(() => {
+    if (!playerId || !currentRoom) return false;
+    if (currentRoom.round) return currentRoom.round.drawerId === playerId;
+    if (currentRoom.status === 'choosing' && currentRoom.drawerOrder && typeof currentRoom.currentDrawerIndex === 'number') {
+      const drawerId = currentRoom.drawerOrder[currentRoom.currentDrawerIndex] as string | undefined;
+      return drawerId === playerId;
+    }
+    return false;
+  }, [playerId, currentRoom]);
+
+  // Charger la liste des items à l'ouverture de la boutique
+  useEffect(() => {
+    if (!isShopOpen) return;
+    const socket = getSocket();
+    const handleItems = (items: any[]) => setItemsCatalog(items);
+    socket.emit('items:list');
+    socket.on('items:list', handleItems);
+    return () => {
+      socket.off('items:list', handleItems);
+    };
+  }, [isShopOpen, setItemsCatalog]);
+
+  // La barre est visible quand: pas compact OU (compact mais survolé)
+  const shouldShowFull = !isCompact || isHovered;
+
+  const buyDisabled = (cost: number) => score < cost;
+
+  const handleBuy = (itemId: string) => {
+    const socket = getSocket();
+    socket.emit('shop:buy', { itemId });
+    
+    // Afficher une notification
+    const item = itemsCatalog.find(x => x.id === itemId);
+    if (item) {
+      notifications.show({
+        title: 'Achat réussi',
+        message: `Vous avez acheté ${item.name} pour ${item.cost} pts`,
+        color: 'green',
+        position: 'bottom-right',
+        autoClose: 3000,
+      });
+    }
+  };
+
+  const handleUseItem = (instanceId: string, itemId: string) => {
+    if (itemId === 'improvisation') {
+      // On délègue la capture du mot à la modal de choix (page), uniquement si elle est ouverte
+      if (onRequestImprovisation && isDrawer && currentRoom?.status === 'choosing') {
+        // Consommer côté serveur immédiatement pour retirer de l'inventaire
+        getSocket().emit('item:init', { instanceId });
+        onRequestImprovisation(instanceId);
+      }
+    }
+  };
+
+  // Créer 7 emplacements visibles pour l'inventaire, remplis depuis la fin (dernier achat à droite)
+  const visibleSlots = Array.from({ length: 7 }, (_, i) => i);
+  const lastSeven = inventory.slice(-7);
+
   return (
-    <Box
-      style={{
-        position: 'fixed',
-        bottom: 0,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        zIndex: 1000,
-        width: 'auto'
-      }}
-    >
-      {/* Contenu étendu */}
-      <Transition
-        mounted={isExpanded}
-        transition="slide-up"
-        duration={300}
-        timingFunction="ease"
+    <>
+      {/* Plus de modal Improvisation ici: gérée par la modal de choix dans la page */}
+
+      {/* Modal de la boutique */}
+      <Modal
+        opened={isShopOpen}
+        onClose={() => setIsShopOpen(false)}
+        title={
+          <Group justify="space-between" style={{ width: '100%' }}>
+            <Badge>Score: {score}</Badge>
+            <Title order={3} style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>Boutique</Title>
+            <div style={{ width: 100 }} /> {/* Spacer pour équilibrer */}
+          </Group>
+        }
+        size="auto"
+        centered
       >
-        {(styles) => (
-          <Paper
-            shadow="lg"
-            p="md"
-            mb="xs"
-            radius="md"
-            style={{
-              ...styles,
-              backgroundColor: 'var(--mantine-color-dark-7)',
-              border: '2px solid var(--mantine-color-dark-4)'
-            }}
-          >
-            <Box style={{ minHeight: 200, minWidth: 400 }}>
-              {/* Contenu supplémentaire quand la barre est dépliée */}
-              <div style={{ color: 'var(--mantine-color-gray-4)' }}>
-                Informations détaillées de l'inventaire
-              </div>
-            </Box>
-          </Paper>
-        )}
-      </Transition>
+        <Stack gap="xs">
+          <SimpleGrid cols={7} spacing="xs">
+            {itemsCatalog.map((item) => (
+              <UnstyledButton
+                key={item.id}
+                onClick={() => !buyDisabled(item.cost) && handleBuy(item.id)}
+                style={{
+                  width: 60,
+                  height: 60,
+                  borderRadius: '8px',
+                  backgroundColor: 'var(--mantine-color-dark-5)',
+                  border: '2px solid var(--mantine-color-dark-4)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.2s',
+                  cursor: buyDisabled(item.cost) ? 'not-allowed' : 'pointer',
+                  opacity: buyDisabled(item.cost) ? 0.5 : 1,
+                  position: 'relative'
+                }}
+                onMouseEnter={(e) => {
+                  if (!buyDisabled(item.cost)) {
+                    e.currentTarget.style.borderColor = 'var(--mantine-color-blue-6)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--mantine-color-dark-4)';
+                }}
+                title={`${item.name} — ${item.cost} pts`}
+              >
+                <Box
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--mantine-color-gray-1)',
+                    fontSize: '10px',
+                    textAlign: 'center',
+                    padding: 4
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 700 }}>{item.name}</div>
+                    <div style={{ fontSize: 10, opacity: 0.8 }}>{item.cost} pts</div>
+                  </div>
+                </Box>
+              </UnstyledButton>
+            ))}
+          </SimpleGrid>
+        </Stack>
+      </Modal>
+
+      <Box
+        onMouseEnter={() => isCompact && setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: '50%',
+          transform: `translateX(-50%) translateY(${shouldShowFull ? '0' : 'calc(100% - 24px)'})`,
+          zIndex: 1000,
+          width: 'auto',
+          transition: 'transform 0.3s ease-in-out'
+        }}
+      >
 
       {/* Barre d'inventaire fixe */}
       <Paper
@@ -78,9 +189,13 @@ export default function InventoryBar({ slots, onSlotClick }: InventoryBarProps) 
         }}
       >
         <Group gap="xs" wrap="nowrap">
-          {/* Bouton pour déplier/replier */}
+          {/* Bouton pour mode compact/ouvert (pin) */}
           <UnstyledButton
-            onClick={() => setIsExpanded(!isExpanded)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsCompact(!isCompact);
+              if (isCompact) setIsHovered(false);
+            }}
             style={{
               padding: '8px',
               borderRadius: '4px',
@@ -99,61 +214,107 @@ export default function InventoryBar({ slots, onSlotClick }: InventoryBarProps) 
               e.currentTarget.style.backgroundColor = 'var(--mantine-color-dark-5)';
             }}
           >
-            {isExpanded ? (
-              <IconChevronDown size={20} color="var(--mantine-color-gray-4)" />
+            {isCompact ? (
+              <IconPin size={20} color="var(--mantine-color-gray-4)" />
             ) : (
-              <IconChevronUp size={20} color="var(--mantine-color-gray-4)" />
+              <IconPinFilled size={20} color="var(--mantine-color-gray-4)" />
             )}
           </UnstyledButton>
+          
+          {/* 7 emplacements d'inventaire */}
+          {visibleSlots.map((slotIndex, i) => {
+            const item = lastSeven[slotIndex] as any | undefined;
+            const usable = item && item.itemId === 'improvisation' && isDrawer && currentRoom?.status === 'choosing';
+            const content = item ? (
+              <Box style={{ textAlign: 'center', color: 'var(--mantine-color-gray-1)' }}>
+                <div style={{ fontWeight: 700, fontSize: 12 }}>{itemsCatalog.find(x => x.id === item.itemId)?.name ?? item.itemId}</div>
+              </Box>
+            ) : (
+              <Box
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--mantine-color-dark-3)',
+                  fontSize: '12px'
+                }}
+              >
+                Vide
+              </Box>
+            );
+            
+            return (
+              <UnstyledButton
+                key={i}
+                onClick={() => item && usable && handleUseItem(item.instanceId, item.itemId)}
+                style={{
+                  width: 60,
+                  height: 60,
+                  borderRadius: '8px',
+                  backgroundColor: 'var(--mantine-color-dark-5)',
+                  border: '2px solid var(--mantine-color-dark-4)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.2s',
+                  cursor: item ? (usable ? 'pointer' : 'not-allowed') : 'default',
+                  position: 'relative',
+                  opacity: item && !usable ? 0.5 : 1
+                }}
+                onMouseEnter={(e) => {
+                  if (item) {
+                    e.currentTarget.style.borderColor = 'var(--mantine-color-blue-6)';
+                    if (usable) {
+                      e.currentTarget.style.backgroundColor = 'var(--mantine-color-dark-4)';
+                    }
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'var(--mantine-color-dark-5)';
+                  e.currentTarget.style.borderColor = 'var(--mantine-color-dark-4)';
+                }}
+                title={item ? (itemsCatalog.find(x => x.id === item.itemId)?.name ?? item.itemId) : 'Vide'}
+              >
+                {content}
+              </UnstyledButton>
+            );
+          })}
 
-          {/* Les 7 emplacements */}
-          {inventorySlots.map((slot) => (
-            <UnstyledButton
-              key={slot.id}
-              onClick={() => onSlotClick?.(slot.id)}
-              style={{
-                width: 60,
-                height: 60,
-                borderRadius: '8px',
-                backgroundColor: 'var(--mantine-color-dark-5)',
-                border: '2px solid var(--mantine-color-dark-4)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'all 0.2s',
-                cursor: 'pointer',
-                position: 'relative'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = 'var(--mantine-color-dark-4)';
-                e.currentTarget.style.borderColor = 'var(--mantine-color-blue-6)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'var(--mantine-color-dark-5)';
-                e.currentTarget.style.borderColor = 'var(--mantine-color-dark-4)';
-                e.currentTarget.style.transform = 'translateY(0)';
-              }}
-            >
-              {slot.content || (
-                <Box
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'var(--mantine-color-dark-3)',
-                    fontSize: '12px'
-                  }}
-                >
-                  {slot.id}
-                </Box>
-              )}
-            </UnstyledButton>
-          ))}
+          {/* Bouton pour ouvrir la boutique */}
+          <UnstyledButton
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsShopOpen(true);
+            }}
+            style={{
+              padding: '8px',
+              borderRadius: '4px',
+              backgroundColor: 'var(--mantine-color-dark-5)',
+              border: '1px solid var(--mantine-color-dark-4)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'background-color 0.2s',
+              cursor: 'pointer'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'var(--mantine-color-dark-4)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'var(--mantine-color-dark-5)';
+            }}
+          >
+            <IconBuildingStore 
+              size={20} 
+              color="var(--mantine-color-gray-4)" 
+              fill={isShopOpen ? 'currentColor' : 'none'}
+            />
+          </UnstyledButton>
         </Group>
       </Paper>
-    </Box>
+      </Box>
+    </>
   );
 }

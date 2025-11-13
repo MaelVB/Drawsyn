@@ -5,7 +5,9 @@ import { CreateRoomDto } from './dto/create-room.dto';
 import { GuessDto } from './dto/guess.dto';
 import { UpdateRoomSettingsDto } from './dto/update-room-settings.dto';
 import { LobbyService } from './lobby.service';
-import { PlayerState, RoomState } from './types/game-state';
+import { PlayerState, RoomState, ItemId, PlayerItem } from './types/game-state';
+import { listItems, ITEMS } from './items/items.registry';
+import { randomUUID } from 'crypto';
 
 interface JoinContext {
   roomId: string;
@@ -96,7 +98,8 @@ export class GameService {
       ? {
           ...existing,
           name: context.pseudo,
-          connected: true
+          connected: true,
+          inventory: existing.inventory ?? []
         }
       : {
           id: context.userId,
@@ -104,7 +107,8 @@ export class GameService {
           score: 0,
           isDrawing: false,
           connected: true,
-          joinOrder: Object.values(room.players).length // ordre actuel avant insertion
+          joinOrder: Object.values(room.players).length, // ordre actuel avant insertion
+          inventory: []
         };
 
     room.players[player.id] = player;
@@ -120,6 +124,161 @@ export class GameService {
     this.logger.log(`Room ${room.name} now has ${Object.values(room.players).filter(p => p.connected).length} connected players`);
 
     return { room, player };
+  }
+
+  // ===================== Items API =====================
+  getAvailableItems() {
+    return listItems();
+  }
+
+  purchaseItem(roomId: string, playerId: string, itemId: ItemId) {
+    const room = this.lobby.getRoom(roomId);
+    if (!room) throw new Error('Room not found');
+    const player = room.players[playerId];
+    if (!player) throw new Error('Player not found');
+    const def = ITEMS[itemId];
+    if (!def) throw new Error('Item inconnu');
+    if (room.status === 'ended') throw new Error('La partie est terminée');
+    if (player.score < def.cost) throw new Error('Score insuffisant');
+
+    player.score -= def.cost;
+    const item: PlayerItem = {
+      instanceId: randomUUID(),
+      itemId,
+      acquiredAt: Date.now(),
+      consumed: false
+    };
+    if (!player.inventory) player.inventory = [];
+    player.inventory.push(item);
+    room.lastActivityAt = Date.now();
+    this.lobby.upsertRoom(room);
+
+    // Notifier uniquement le joueur pour l'achat + mettre à jour la room
+    this.emitToPlayer(playerId, 'shop:purchased', { item, score: player.score });
+    this.emitToRoom(room.id, 'room:state', {
+      ...room,
+      connectedPlayers: Object.values(room.players).filter(p => p.connected).length,
+      totalPlayers: Object.keys(room.players).length
+    });
+  }
+
+  useItem(roomId: string, playerId: string, instanceId: string, params?: any) {
+    const room = this.lobby.getRoom(roomId);
+    if (!room) throw new Error('Room not found');
+    const player = room.players[playerId];
+    if (!player) throw new Error('Player not found');
+    if (!player.inventory) player.inventory = [];
+    let idx = player.inventory.findIndex(it => it.instanceId === instanceId && !it.consumed);
+    let item: PlayerItem | undefined = idx !== -1 ? player.inventory[idx] : undefined;
+    // Autoriser l'utilisation si l'instance a été pré-consommée pour Improvisation
+    if (!item && room.pendingImprovisationInstanceId === instanceId) {
+      // reconstruire minimalement pour router
+      item = { instanceId, itemId: 'improvisation', acquiredAt: Date.now(), consumed: true };
+    }
+    if (!item) throw new Error('Item non disponible');
+    const def = ITEMS[item.itemId];
+    if (!def) throw new Error('Item inconnu');
+
+    // Router selon l'item
+    switch (item.itemId) {
+      case 'improvisation':
+        this.applyImprovisation(room, playerId, item, params);
+        break;
+      default:
+        throw new Error('Item non pris en charge');
+    }
+  }
+
+  private applyImprovisation(room: RoomState, playerId: string, item: PlayerItem, params?: { word?: string }) {
+    // Doit être utilisé pendant la phase de choix par le dessinateur
+    if (room.status !== 'choosing' || !room.drawerOrder || room.currentDrawerIndex == null) {
+      throw new Error("L'Improvisation ne peut être utilisée qu'au moment du choix du mot");
+    }
+    const drawerId = room.drawerOrder[room.currentDrawerIndex];
+    if (drawerId !== playerId) {
+      throw new Error('Seul le dessinateur peut utiliser cet item');
+    }
+    const word = (params?.word ?? '').trim();
+    if (!word || word.length < 2 || word.length > 20) {
+      throw new Error('Mot invalide (2-20 lettres)');
+    }
+
+    // Marquer l'item comme consommé et le retirer visiblement de l'inventaire
+    const player = room.players[playerId];
+    if (!player.inventory) player.inventory = [];
+    const invIdx = player.inventory.findIndex((it) => it.instanceId === item.instanceId);
+    if (invIdx !== -1) {
+      player.inventory[invIdx].consumed = true;
+      player.inventory.splice(invIdx, 1);
+    }
+    // Si l'instance avait été pré-consommée, nettoyer le flag
+    if (room.pendingImprovisationInstanceId === item.instanceId) {
+      room.pendingImprovisationInstanceId = undefined;
+    }
+
+    // Calculer le score total : 100 × nombre de joueurs connectés
+    const connectedPlayersCount = Object.values(room.players).filter(p => p.connected).length;
+    const totalScore = connectedPlayersCount * 100;
+
+    // Créer le round avec le mot choisi manuellement
+    const round = {
+      word,
+      revealed: word.replace(/./g, '_'),
+      drawerId,
+      startedAt: Date.now(),
+      roundEndsAt: Date.now() + room.roundDuration * 1000,
+      guessedPlayerIds: [],
+      revealedIndices: [],
+      totalScore
+    };
+    room.round = round;
+    room.status = 'running';
+    room.pendingWordChoices = undefined;
+    room.lastActivityAt = Date.now();
+    this.lobby.upsertRoom(room);
+
+    // Démarrer la manche
+    this.startTimer(room.id);
+    // Informer l'utilisation de l'item (sans dévoiler le mot)
+    this.emitToRoom(room.id, 'item:used', { itemId: 'improvisation', playerId });
+    // Notifier le début de manche
+    this.emitToRoom(room.id, 'round:started', {
+      drawerId: round.drawerId,
+      roundEndsAt: round.roundEndsAt,
+      revealed: round.revealed,
+      currentRound: room.currentRound,
+      totalRounds: room.totalRounds
+    });
+    // Envoyer le mot en privé au dessinateur
+    this.emitToPlayer(round.drawerId, 'round:word', { word: round.word });
+  }
+
+  initiateImprovisation(roomId: string, playerId: string, instanceId: string) {
+    const room = this.lobby.getRoom(roomId);
+    if (!room) throw new Error('Room not found');
+    const player = room.players[playerId];
+    if (!player) throw new Error('Player not found');
+    if (room.status !== 'choosing' || !room.drawerOrder || room.currentDrawerIndex == null) {
+      throw new Error("Improvisation utilisable uniquement pendant la sélection du mot");
+    }
+    const drawerId = room.drawerOrder[room.currentDrawerIndex];
+    if (drawerId !== playerId) throw new Error('Seul le dessinateur peut initier Improvisation');
+    if (!player.inventory) player.inventory = [];
+    const idx = player.inventory.findIndex(it => it.instanceId === instanceId && it.itemId === 'improvisation' && !it.consumed);
+    if (idx === -1) throw new Error('Item non disponible');
+
+    // Consommer immédiatement et retirer de l'inventaire
+    player.inventory[idx].consumed = true;
+    player.inventory.splice(idx, 1);
+    room.pendingImprovisationInstanceId = instanceId;
+    room.lastActivityAt = Date.now();
+    this.lobby.upsertRoom(room);
+    // Rafraîchir l'état de room
+    this.emitToRoom(room.id, 'room:state', {
+      ...room,
+      connectedPlayers: Object.values(room.players).filter(p => p.connected).length,
+      totalPlayers: Object.keys(room.players).length
+    });
   }
 
   leaveRoom(roomId: string, playerId: string): RoomState | undefined {
@@ -155,6 +314,31 @@ export class GameService {
     if (room.round?.drawerId === playerId && room.status === 'running') {
       this.logger.warn(`Drawer ${player.name} left room ${room.name}, skipping to next turn`);
       this.endTurn(room.id, 'drawer-disconnected');
+    }
+    // Si on est en phase de choix et que le dessinateur se déconnecte, passer au suivant
+    if (room.status === 'choosing' && room.drawerOrder && room.currentDrawerIndex != null) {
+      const currentDrawerId = room.drawerOrder[room.currentDrawerIndex];
+      if (currentDrawerId === playerId) {
+        this.logger.warn(`Drawer ${player.name} left during choosing in room ${room.name}, moving to next`);
+        // Avancer au prochain joueur connecté
+        let nextIndex = (room.currentDrawerIndex + 1) % room.drawerOrder.length;
+        let safety = 0;
+        while (!room.players[room.drawerOrder[nextIndex]]?.connected && safety < room.drawerOrder.length) {
+          nextIndex = (nextIndex + 1) % room.drawerOrder.length;
+          safety++;
+        }
+        if (safety < room.drawerOrder.length) {
+          room.currentDrawerIndex = nextIndex;
+          room.pendingWordChoices = undefined;
+          this.lobby.upsertRoom(room);
+          this.startTurn(room);
+        } else {
+          // Personne de connecté
+          room.status = 'lobby';
+          room.pendingWordChoices = undefined;
+          this.lobby.upsertRoom(room);
+        }
+      }
     }
 
     // Si plus aucun joueur connecté, arrêter le timer et retourner au lobby
@@ -271,18 +455,62 @@ export class GameService {
       room.currentDrawerIndex = nextIdx;
     }
     const finalDrawerId = room.drawerOrder[room.currentDrawerIndex];
-    Object.values(room.players).forEach(p => p.isDrawing = false);
-    if (room.players[finalDrawerId]) room.players[finalDrawerId].isDrawing = true;
+  Object.values(room.players).forEach(p => p.isDrawing = false);
+  if (room.players[finalDrawerId]) room.players[finalDrawerId].isDrawing = true;
     
+    // Phase de choix du mot
+    room.status = 'choosing';
+    // Proposer 3 mots aléatoires distincts
+    const options = this.pickRandomWords(3);
+    room.pendingWordChoices = options;
+    room.round = undefined; // Pas encore de round démarré
+    room.lastActivityAt = Date.now();
+    this.lobby.upsertRoom(room);
+    // Notifier uniquement le dessinateur pour choisir un mot
+    this.emitToPlayer(finalDrawerId, 'round:choose', { options });
+  }
+
+  private pickRandomWords(count: number): string[] {
+    const pool = [...this.words];
+    const result: string[] = [];
+    while (result.length < count && pool.length > 0) {
+      const idx = Math.floor(Math.random() * pool.length);
+      result.push(pool.splice(idx, 1)[0]);
+    }
+    // Si le pool est trop petit, autoriser des doublons (fallback)
+    while (result.length < count && this.words.length > 0) {
+      result.push(this.words[Math.floor(Math.random() * this.words.length)]);
+    }
+    return result;
+  }
+
+  chooseWord(roomId: string, playerId: string, chosen: string) {
+    const room = this.lobby.getRoom(roomId);
+    if (!room) throw new Error('Room not found');
+    // Valider que le joueur est le dessinateur actuel
+    if (room.currentDrawerIndex == null || !room.drawerOrder) throw new Error('No drawer');
+    const drawerId = room.drawerOrder[room.currentDrawerIndex];
+    if (drawerId !== playerId) {
+      this.logger.warn(`chooseWord: Player ${playerId} tried to choose word for drawer ${drawerId}`);
+      throw new Error('Seul le dessinateur peut choisir le mot');
+    }
+    // Valider le choix
+    const options = room.pendingWordChoices ?? [];
+    if (!options.includes(chosen)) {
+      this.logger.warn(`chooseWord: Invalid choice '${chosen}' not in options [${options.join(', ')}]`);
+      throw new Error('Choix invalide');
+    }
+
     // Calculer le score total : 100 × nombre de joueurs connectés
     const connectedPlayersCount = Object.values(room.players).filter(p => p.connected).length;
     const totalScore = connectedPlayersCount * 100;
-    
-    const word = this.words[Math.floor(Math.random() * this.words.length)];
+
+    // Créer le round
+    const word = chosen;
     const round = {
       word,
       revealed: word.replace(/./g, '_'),
-      drawerId: finalDrawerId,
+      drawerId,
       startedAt: Date.now(),
       roundEndsAt: Date.now() + room.roundDuration * 1000,
       guessedPlayerIds: [],
@@ -291,10 +519,13 @@ export class GameService {
     };
     room.round = round;
     room.status = 'running';
+    room.pendingWordChoices = undefined;
     room.lastActivityAt = Date.now();
     this.lobby.upsertRoom(room);
-    // Lancer timer
+
+    // Lancer timer de round
     this.startTimer(room.id);
+    // Notifier tout le monde que la manche démarre (sans dévoiler le mot)
     this.emitToRoom(room.id, 'round:started', {
       drawerId: round.drawerId,
       roundEndsAt: round.roundEndsAt,
@@ -302,6 +533,7 @@ export class GameService {
       currentRound: room.currentRound,
       totalRounds: room.totalRounds
     });
+    // Envoyer le mot en privé au dessinateur
     this.emitToPlayer(round.drawerId, 'round:word', { word: round.word });
   }
 

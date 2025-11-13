@@ -1,6 +1,7 @@
 'use client';
 
 import { MantineProvider } from '@mantine/core';
+import { Notifications } from '@mantine/notifications';
 import { ReactNode, useEffect } from 'react';
 
 import { useAuthStore } from '@/stores/auth-store';
@@ -22,6 +23,7 @@ function AuthInitializer() {
 export function Providers({ children }: ProvidersProps) {
   return (
     <MantineProvider defaultColorScheme="dark" withCssVariables>
+      <Notifications position="bottom-right" />
       <AuthInitializer />
       {children}
     </MantineProvider>

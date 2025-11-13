@@ -94,6 +94,60 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.broadcastLobby();
   }
 
+  // ===================== Items =====================
+  @SubscribeMessage('items:list')
+  handleListItems(@ConnectedSocket() client: Socket) {
+    if (!this.connections.has(client.id)) {
+      client.emit('auth:error', { message: 'Authentification requise' });
+      return;
+    }
+    client.emit('items:list', this.game.getAvailableItems());
+  }
+
+  @SubscribeMessage('shop:buy')
+  handleShopBuy(@ConnectedSocket() client: Socket, @MessageBody() payload: { itemId: string }) {
+    const connection = this.connections.get(client.id);
+    if (!connection || !connection.roomId || !connection.playerId) {
+      client.emit('auth:error', { message: 'Authentification requise' });
+      return;
+    }
+    try {
+      // Cast itemId en string typée côté service
+      this.game.purchaseItem(connection.roomId, connection.playerId, payload.itemId as any);
+      // L'état de room sera émis par le service
+    } catch (error) {
+      client.emit('room:error', { message: (error as Error).message });
+    }
+  }
+
+  @SubscribeMessage('item:use')
+  handleItemUse(@ConnectedSocket() client: Socket, @MessageBody() payload: { instanceId: string; params?: any }) {
+    const connection = this.connections.get(client.id);
+    if (!connection || !connection.roomId || !connection.playerId) {
+      client.emit('auth:error', { message: 'Authentification requise' });
+      return;
+    }
+    try {
+      this.game.useItem(connection.roomId, connection.playerId, payload.instanceId, payload.params);
+    } catch (error) {
+      client.emit('room:error', { message: (error as Error).message });
+    }
+  }
+
+  @SubscribeMessage('item:init')
+  handleItemInit(@ConnectedSocket() client: Socket, @MessageBody() payload: { instanceId: string }) {
+    const connection = this.connections.get(client.id);
+    if (!connection || !connection.roomId || !connection.playerId) {
+      client.emit('auth:error', { message: 'Authentification requise' });
+      return;
+    }
+    try {
+      this.game.initiateImprovisation(connection.roomId, connection.playerId, payload.instanceId);
+    } catch (error) {
+      client.emit('room:error', { message: (error as Error).message });
+    }
+  }
+
   @SubscribeMessage('room:join')
   handleJoinRoom(@ConnectedSocket() client: Socket, @MessageBody() dto: JoinRoomDto) {
     const connection = this.connections.get(client.id);
@@ -130,9 +184,32 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         });
         this.server.to(round.drawerId).emit('round:word', { word: round.word });
         this.emitRoomState(room.id);
+      } else if (room.status === 'choosing') {
+        // Si le joueur qui vient de joindre est le dessinateur, renvoyer les choix de mots
+        if (room.currentDrawerIndex != null && room.drawerOrder) {
+          const drawerId = room.drawerOrder[room.currentDrawerIndex];
+          if (drawerId === player.id && room.pendingWordChoices && room.pendingWordChoices.length > 0) {
+            this.server.to(drawerId).emit('round:choose', { options: room.pendingWordChoices });
+          }
+        }
       }
     } catch (error) {
       console.error('[WebSocket] ❌ Erreur lors du join:', (error as Error).message);
+      client.emit('room:error', { message: (error as Error).message });
+    }
+  }
+
+  @SubscribeMessage('round:word-chosen')
+  handleWordChosen(@ConnectedSocket() client: Socket, @MessageBody() payload: { word: string }) {
+    const connection = this.connections.get(client.id);
+    if (!connection || !connection.roomId || !connection.playerId) {
+      client.emit('auth:error', { message: 'Authentification requise' });
+      return;
+    }
+    try {
+      this.game.chooseWord(connection.roomId, connection.playerId, payload.word);
+      this.emitRoomState(connection.roomId);
+    } catch (error) {
       client.emit('room:error', { message: (error as Error).message });
     }
   }

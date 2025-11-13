@@ -73,6 +73,9 @@ export default function GameRoomPage() {
   const [guesses, setGuesses] = useState<GuessMessage[]>([]);
   const [guessText, setGuessText] = useState('');
   const [error, setError] = useState<string | undefined>();
+  const [wordChoices, setWordChoices] = useState<string[] | null>(null);
+  const [improvInstanceId, setImprovInstanceId] = useState<string | null>(null);
+  const [improvWord, setImprovWord] = useState('');
   
   // États pour les outils de dessin
   const [brushColor, setBrushColor] = useState('#000000');
@@ -176,6 +179,10 @@ export default function GameRoomPage() {
         revealed: payload.revealed
       });
       setWord(undefined);
+      // Fermer la modal de choix si ouverte (ex: usage d'Improvisation)
+      setWordChoices(null);
+      setImprovInstanceId(null);
+      setImprovWord('');
       
       // Ne PAS effacer le canvas ici - il sera effacé uniquement lors de round:ended
       // Cela permet de conserver le dessin lors d'un F5
@@ -183,6 +190,11 @@ export default function GameRoomPage() {
 
     const handleRoundWord = (payload: RoundWordPayload) => {
       setWord(payload.word);
+    };
+
+    const handleRoundChoose = (payload: { options: string[] }) => {
+      // Ne s'affiche que pour le dessinateur (événement privé)
+      setWordChoices(payload.options);
     };
 
     const handleRoundEnded = (payload: any) => {
@@ -286,6 +298,16 @@ export default function GameRoomPage() {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
     };
 
+    const handleItemUsed = (payload: { itemId: string; playerId: string }) => {
+      setGuesses((messages) => [
+        ...messages,
+        {
+          playerId: 'system',
+          text: `${currentRoom?.players[payload.playerId]?.name ?? 'Un joueur'} a utilisé ${payload.itemId}`
+        }
+      ]);
+    };
+
     const handleAuthError = (payload: { message?: string }) => {
       console.error('[GameRoom] ⚠️ Erreur d\'authentification reçue:', payload);
       
@@ -342,6 +364,7 @@ export default function GameRoomPage() {
     socket.on('room:state', handleRoomState);
     socket.on('round:started', handleRoundStarted);
     socket.on('round:word', handleRoundWord);
+  socket.on('round:choose', handleRoundChoose);
     socket.on('round:ended', handleRoundEnded);
     socket.on('round:cancelled', handleRoundCancelled);
     socket.on('guess:submitted', handleGuessSubmitted);
@@ -352,6 +375,7 @@ export default function GameRoomPage() {
     socket.on('auth:error', handleAuthError);
   socket.on('timer:tick', handleTimerTick);
   socket.on('guess:correct', handleGuessCorrect);
+  socket.on('item:used', handleItemUsed);
 
     // Si le socket est déjà connecté au moment du montage
     console.log('[GameRoom] 🔍 Vérification état socket:', {
@@ -379,6 +403,7 @@ export default function GameRoomPage() {
       socket.off('room:state', handleRoomState);
       socket.off('round:started', handleRoundStarted);
       socket.off('round:word', handleRoundWord);
+  socket.off('round:choose', handleRoundChoose);
       socket.off('round:ended', handleRoundEnded);
       socket.off('round:cancelled', handleRoundCancelled);
       socket.off('guess:submitted', handleGuessSubmitted);
@@ -389,6 +414,7 @@ export default function GameRoomPage() {
   socket.off('auth:error', handleAuthError);
   socket.off('timer:tick', handleTimerTick);
   socket.off('guess:correct', handleGuessCorrect);
+  socket.off('item:used', handleItemUsed);
       hasJoinedRoomRef.current = false;
     };
   }, [clearAuth, clearCanvas, drawPoints, roomId, router, setCurrentRoom, setPlayerId, setRound, user, hydrated, isJoiningRoom]);
@@ -546,6 +572,62 @@ export default function GameRoomPage() {
 
   return (
     <>
+      {/* Modal de choix du mot pour le dessinateur */}
+      <Modal
+        opened={!!wordChoices}
+        onClose={() => {}}
+        title={improvInstanceId ? 'Improvisation' : 'Choisissez un mot'}
+        closeOnClickOutside={false}
+        closeOnEscape={false}
+        withCloseButton={false}
+        centered
+      >
+        {improvInstanceId ? (
+          <Stack gap="md">
+            <Text size="sm" c="dimmed">Entrez un mot personnalisé (2-20 lettres). Utilisation de l'item Improvisation.</Text>
+            <TextInput
+              placeholder="Votre mot"
+              value={improvWord}
+              maxLength={20}
+              onChange={(e) => setImprovWord(e.currentTarget.value.slice(0,20))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && improvWord.trim().length >= 2 && improvWord.trim().length <= 20) {
+                  if (!improvInstanceId) return;
+                  getSocket().emit('item:use', { instanceId: improvInstanceId, params: { word: improvWord.trim() } });
+                }
+              }}
+            />
+            <Group justify="space-between">
+              <Button variant="default" onClick={() => { setImprovInstanceId(null); setImprovWord(''); }}>Retour</Button>
+              <Button
+                disabled={improvWord.trim().length < 2 || improvWord.trim().length > 20}
+                onClick={() => {
+                  if (!improvInstanceId) return;
+                  getSocket().emit('item:use', { instanceId: improvInstanceId, params: { word: improvWord.trim() } });
+                }}
+              >
+                Valider
+              </Button>
+            </Group>
+          </Stack>
+        ) : (
+          <Stack gap="md">
+            <Text size="sm" c="dimmed">Sélectionnez l'un des 3 mots, ou utilisez l'item Improvisation depuis votre inventaire.</Text>
+            <Group grow>
+              {wordChoices?.map((w) => (
+                <Button key={w} onClick={() => {
+                  if (!roomId) return;
+                  getSocket().emit('round:word-chosen', { word: w });
+                  setWordChoices(null);
+                }}>
+                  {w}
+                </Button>
+              ))}
+            </Group>
+          </Stack>
+        )}
+      </Modal>
+
       {/* Modal d'authentification */}
       <Modal
         opened={showAuthModal}
@@ -897,12 +979,13 @@ export default function GameRoomPage() {
       )}
       
       {/* Barre d'inventaire fixe en bas */}
-      <InventoryBar 
-        onSlotClick={(slotId) => {
-          console.log('Slot cliqué:', slotId);
-          // Vous pouvez ajouter votre logique ici
-        }}
-      />
+      <InventoryBar onRequestImprovisation={(instanceId) => {
+        // N'autoriser que si la modal de choix est ouverte
+        if (wordChoices) {
+          setImprovInstanceId(instanceId);
+          setImprovWord('');
+        }
+      }} />
     </>
   );
 }
