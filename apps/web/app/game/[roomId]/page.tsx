@@ -25,6 +25,7 @@ import {
 } from '@mantine/core';
 import { IconInfoCircle, IconBrush, IconEraser, IconBucket } from '@tabler/icons-react';
 import LobbySettings from '@/components/LobbySettings';
+import InventoryBar from '@/components/InventoryBar';
 
 import { getSocket } from '@/lib/socket';
 import { register, login } from '@/lib/api';
@@ -894,6 +895,14 @@ export default function GameRoomPage() {
       </Group>
     </Stack>
       )}
+      
+      {/* Barre d'inventaire fixe en bas */}
+      <InventoryBar 
+        onSlotClick={(slotId) => {
+          console.log('Slot cliqué:', slotId);
+          // Vous pouvez ajouter votre logique ici
+        }}
+      />
     </>
   );
 }
