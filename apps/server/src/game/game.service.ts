@@ -193,13 +193,41 @@ export class GameService {
     const expected = room.round.word.toLowerCase();
 
     if (normalized === expected && room.round.drawerId !== playerId) {
+      // Vérifier si le joueur n'a pas déjà trouvé
+      if (room.round.guessedPlayerIds.includes(playerId)) {
+        return { correct: false, room };
+      }
+
+      // Ajouter le joueur à la liste des joueurs qui ont trouvé
+      room.round.guessedPlayerIds.push(playerId);
+      
+      // Calculer le score en fonction de l'ordre de découverte
+      const position = room.round.guessedPlayerIds.length; // 1er, 2ème, 3ème, etc.
+      const totalScore = room.round.totalScore ?? 0;
+      let scorePercentage = 0;
+      
+      switch (position) {
+        case 1: scorePercentage = 0.50; break; // 50%
+        case 2: scorePercentage = 0.30; break; // 30%
+        case 3: scorePercentage = 0.20; break; // 20%
+        case 4: scorePercentage = 0.10; break; // 10%
+        default: scorePercentage = 0.05; break; // 5% pour le 5ème et suivants
+      }
+      
+      const earnedPoints = Math.round(totalScore * scorePercentage);
       const player = room.players[playerId];
       if (player) {
-        player.score += 50; // Score identique pour tous ceux qui trouvent
+        player.score += earnedPoints;
       }
-      if (!room.round.guessedPlayerIds.includes(playerId)) {
-        room.round.guessedPlayerIds.push(playerId);
+      
+      // Réduire le timer de 5% du temps restant (arrondi supérieur)
+      const remainingMs = room.round.roundEndsAt - Date.now();
+      if (remainingMs > 0) {
+        const reductionMs = Math.ceil(remainingMs * 0.05);
+        room.round.roundEndsAt -= reductionMs;
+        this.logger.log(`Timer reduced by ${reductionMs}ms (5% of ${remainingMs}ms remaining)`);
       }
+      
       this.lobby.upsertRoom(room);
 
       // Vérifier si tout le monde (hors dessinateur) a trouvé
@@ -208,8 +236,14 @@ export class GameService {
       if (allGuessed) {
         this.endTurn(room.id, 'all-guessed');
       } else {
-        // Notifier juste la bonne réponse
-        this.emitToRoom(room.id, 'guess:correct', { playerId, word: room.round.word });
+        // Notifier la bonne réponse avec les détails
+        this.emitToRoom(room.id, 'guess:correct', { 
+          playerId, 
+          word: room.round.word,
+          position,
+          earnedPoints,
+          newTimer: room.round.roundEndsAt
+        });
       }
       return { correct: true, room, playerId };
     }
@@ -239,6 +273,11 @@ export class GameService {
     const finalDrawerId = room.drawerOrder[room.currentDrawerIndex];
     Object.values(room.players).forEach(p => p.isDrawing = false);
     if (room.players[finalDrawerId]) room.players[finalDrawerId].isDrawing = true;
+    
+    // Calculer le score total : 100 × nombre de joueurs connectés
+    const connectedPlayersCount = Object.values(room.players).filter(p => p.connected).length;
+    const totalScore = connectedPlayersCount * 100;
+    
     const word = this.words[Math.floor(Math.random() * this.words.length)];
     const round = {
       word,
@@ -246,7 +285,9 @@ export class GameService {
       drawerId: finalDrawerId,
       startedAt: Date.now(),
       roundEndsAt: Date.now() + room.roundDuration * 1000,
-      guessedPlayerIds: []
+      guessedPlayerIds: [],
+      revealedIndices: [],
+      totalScore
     };
     room.round = round;
     room.status = 'running';
@@ -281,10 +322,116 @@ export class GameService {
     if (!room || !room.round) return;
     const remainingMs = room.round.roundEndsAt - Date.now();
     const remaining = Math.max(0, Math.ceil(remainingMs / 1000));
-    this.emitToRoom(room.id, 'timer:tick', { remaining });
+    
+    // Dévoiler progressivement les lettres
+    const updatedRevealed = this.updateRevealedLetters(room);
+    if (updatedRevealed) {
+      room.round.revealed = updatedRevealed;
+      this.lobby.upsertRoom(room);
+    }
+    
+    this.emitToRoom(room.id, 'timer:tick', { remaining, revealed: room.round.revealed });
     if (remaining <= 0) {
       this.endTurn(roomId, 'timeout');
     }
+  }
+
+  /**
+   * Calcule et révèle progressivement les lettres du mot
+   * Règle : 50% du mot révélé quand le timer atteint 0s
+   * Commence par la 4ème lettre, puis +4 à chaque fois (en sautant les lettres déjà révélées)
+   */
+  private updateRevealedLetters(room: RoomState): string | null {
+    if (!room.round || !room.round.revealedIndices) return null;
+    
+    const word = room.round.word;
+    const wordLength = word.length;
+    const targetRevealCount = Math.ceil(wordLength * 0.5); // 50% du mot
+    
+    // Si on a déjà révélé 50% ou plus, ne rien faire
+    if (room.round.revealedIndices.length >= targetRevealCount) {
+      return null;
+    }
+    
+    const totalDuration = room.roundDuration; // en secondes
+    const elapsedMs = Date.now() - room.round.startedAt;
+    const elapsedSeconds = Math.floor(elapsedMs / 1000);
+    
+    // Calculer combien de lettres devraient être révélées à ce moment
+    // On révèle linéairement pour atteindre 50% à la fin
+    const expectedRevealCount = Math.min(
+      targetRevealCount,
+      Math.floor((elapsedSeconds / totalDuration) * targetRevealCount)
+    );
+    
+    // Si on a déjà révélé assez de lettres pour le moment, ne rien faire
+    if (room.round.revealedIndices.length >= expectedRevealCount) {
+      return null;
+    }
+    
+    // Révéler les lettres manquantes
+    let needToReveal = expectedRevealCount - room.round.revealedIndices.length;
+    while (needToReveal > 0) {
+      const nextIndex = this.getNextLetterToReveal(word, room.round.revealedIndices);
+      if (nextIndex === -1) break; // Plus de lettres à révéler
+      
+      room.round.revealedIndices.push(nextIndex);
+      needToReveal--;
+    }
+    
+    // Construire la chaîne revealed
+    return this.buildRevealedString(word, room.round.revealedIndices);
+  }
+
+  /**
+   * Calcule le prochain indice de lettre à révéler selon les règles :
+   * - Première lettre : indice 3 (4ème lettre)
+   * - Ensuite : +4 à partir de la dernière lettre révélée
+   * - Si on tombe sur une lettre déjà révélée, prendre la suivante
+   */
+  private getNextLetterToReveal(word: string, revealedIndices: number[]): number {
+    const wordLength = word.length;
+    
+    // Si aucune lettre révélée, commencer par la 4ème (indice 3)
+    if (revealedIndices.length === 0) {
+      // Vérifier que le mot a au moins 4 lettres
+      return wordLength > 3 ? 3 : 0;
+    }
+    
+    // Trouver la dernière lettre révélée
+    const lastRevealed = Math.max(...revealedIndices);
+    
+    // Calculer la position suivante (+4)
+    let nextIndex = lastRevealed + 4;
+    
+    // Boucler si on dépasse la fin du mot
+    if (nextIndex >= wordLength) {
+      nextIndex = nextIndex % wordLength;
+    }
+    
+    // Si la lettre est déjà révélée, prendre la suivante non révélée
+    let attempts = 0;
+    while (revealedIndices.includes(nextIndex) && attempts < wordLength) {
+      nextIndex = (nextIndex + 1) % wordLength;
+      attempts++;
+    }
+    
+    // Si toutes les lettres sont révélées ou on a fait le tour complet
+    if (attempts >= wordLength || revealedIndices.includes(nextIndex)) {
+      return -1;
+    }
+    
+    return nextIndex;
+  }
+
+  /**
+   * Construit la chaîne revealed avec les lettres révélées et des underscores
+   */
+  private buildRevealedString(word: string, revealedIndices: number[]): string {
+    return word
+      .split('')
+      .map((char, index) => (revealedIndices.includes(index) ? char : '_'))
+      .join('');
   }
 
   private endTurn(roomId: string, reason: string) {

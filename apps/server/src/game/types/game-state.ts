@@ -18,6 +18,10 @@ export interface RoundState {
   guessedPlayerIds: string[];
   // Raison de fin possible: timeout | all-guessed | next-turn | game-ended | cancelled
   endReason?: string;
+  // Indices des lettres déjà révélées (pour le dévoilement progressif)
+  revealedIndices?: number[];
+  // Score total du round (100 × nombre de joueurs connectés)
+  totalScore?: number;
 }
 
 export interface RoomState {

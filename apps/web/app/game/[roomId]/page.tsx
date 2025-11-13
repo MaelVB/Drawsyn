@@ -202,16 +202,36 @@ export default function GameRoomPage() {
       clearCanvas();
     };
 
-    const handleTimerTick = (payload: { remaining: number }) => {
+    const handleTimerTick = (payload: { remaining: number; revealed?: string }) => {
       updateRoundRemaining(payload.remaining);
+      // Mettre à jour les lettres révélées si présentes
+      if (payload.revealed && round) {
+        setRound({
+          ...round,
+          revealed: payload.revealed
+        });
+      }
     };
 
-    const handleGuessCorrect = (payload: { playerId: string; word: string }) => {
+    const handleGuessCorrect = (payload: { playerId: string; word: string; position?: number; earnedPoints?: number; newTimer?: number }) => {
+      // Mettre à jour le timer si un nouveau temps est fourni
+      if (payload.newTimer && round) {
+        setRound({
+          ...round,
+          roundEndsAt: payload.newTimer
+        });
+      }
+      
+      // Afficher le message avec les points gagnés si disponibles
+      const message = payload.earnedPoints 
+        ? `a trouvé le mot ! (+${payload.earnedPoints} points)`
+        : `a trouvé le mot !`;
+      
       setGuesses((messages) => [
         ...messages,
         {
           playerId: payload.playerId,
-          text: `a trouvé le mot !`
+          text: message
         }
       ]);
     };
