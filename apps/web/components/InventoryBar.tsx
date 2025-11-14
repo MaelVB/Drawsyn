@@ -1,14 +1,64 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Box, Group, Paper, UnstyledButton, Modal, Title, SimpleGrid, Text, Stack, Badge, Button } from '@mantine/core';
-import { IconPin, IconPinFilled, IconBuildingStore } from '@tabler/icons-react';
+import { Box, Group, Paper, UnstyledButton, Modal, Title, SimpleGrid, Text, Stack, Badge, Button, Tooltip } from '@mantine/core';
+import { 
+  IconPin, 
+  IconPinFilled, 
+  IconBuildingStore, 
+  IconBubbleText,
+  IconStopwatch,
+  IconConfetti,
+  IconBolt,
+  IconBulbOff,
+  IconBrain,
+  IconSpy,
+  IconCircleDashedMinus,
+  IconDeviceTv,
+  IconWriting,
+  IconPaletteOff,
+  IconStereoGlasses
+} from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { getSocket } from '@/lib/socket';
 import { useGameStore } from '@/stores/game-store';
 
 interface InventoryBarProps {
   onRequestImprovisation?: (instanceId: string) => void;
+}
+
+// Fonction helper pour obtenir l'icône d'un item
+function getItemIcon(itemId: string, size: number = 24) {
+  switch (itemId) {
+    case 'party_time':
+      return <IconConfetti size={size} />;
+    case 'early_bird':
+      return <IconStopwatch size={size} />;
+    case 'paralysis':
+      return <IconBolt size={size} />;
+    case 'improvisation':
+      return <IconBubbleText size={size} />;
+    case 'crt':
+      return <IconDeviceTv size={size} />;
+    case 'unsolicited_help':
+      return <IconWriting size={size} />;
+    case 'noir_blanc':
+      return <IconPaletteOff size={size} />;
+    case 'blackout':
+      return <IconBulbOff size={size} />;
+    case 'amnesia':
+      return <IconBrain size={size} />;
+    case 'unforgiving':
+      return <IconCircleDashedMinus size={size} />;
+    case 'roublard':
+      return <IconCircleDashedMinus size={size} />;
+    case 'spy':
+      return <IconStereoGlasses size={size} />;
+    case 'incognito':
+      return <IconSpy size={size} />;
+    default:
+      return null;
+  }
 }
 
 export default function InventoryBar({ onRequestImprovisation }: InventoryBarProps) {
@@ -110,52 +160,60 @@ export default function InventoryBar({ onRequestImprovisation }: InventoryBarPro
         <Stack gap="xs">
           <SimpleGrid cols={7} spacing="xs">
             {itemsCatalog.map((item) => (
-              <UnstyledButton
+              <Tooltip
                 key={item.id}
-                onClick={() => !buyDisabled(item.cost) && handleBuy(item.id)}
-                style={{
-                  width: 60,
-                  height: 60,
-                  borderRadius: '8px',
-                  backgroundColor: 'var(--mantine-color-dark-5)',
-                  border: '2px solid var(--mantine-color-dark-4)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  transition: 'all 0.2s',
-                  cursor: buyDisabled(item.cost) ? 'not-allowed' : 'pointer',
-                  opacity: buyDisabled(item.cost) ? 0.5 : 1,
-                  position: 'relative'
-                }}
-                onMouseEnter={(e) => {
-                  if (!buyDisabled(item.cost)) {
-                    e.currentTarget.style.borderColor = 'var(--mantine-color-blue-6)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--mantine-color-dark-4)';
-                }}
-                title={`${item.name} — ${item.cost} pts`}
+                label={
+                  <div>
+                    <div style={{ fontWeight: 700 }}>{item.name}</div>
+                    <div style={{ fontSize: 12, opacity: 0.8 }}>{item.description}</div>
+                    <div style={{ fontSize: 12, opacity: 0.9, marginTop: 4 }}>{item.cost} pts</div>
+                  </div>
+                }
+                position="top"
+                withArrow
               >
-                <Box
+                <UnstyledButton
+                  onClick={() => !buyDisabled(item.cost) && handleBuy(item.id)}
                   style={{
-                    width: '100%',
-                    height: '100%',
+                    width: 60,
+                    height: 60,
+                    borderRadius: '8px',
+                    backgroundColor: 'var(--mantine-color-dark-5)',
+                    border: '2px solid var(--mantine-color-dark-4)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: 'var(--mantine-color-gray-1)',
-                    fontSize: '10px',
-                    textAlign: 'center',
-                    padding: 4
+                    transition: 'all 0.2s',
+                    cursor: buyDisabled(item.cost) ? 'not-allowed' : 'pointer',
+                    opacity: buyDisabled(item.cost) ? 0.5 : 1,
+                    position: 'relative'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!buyDisabled(item.cost)) {
+                      e.currentTarget.style.borderColor = 'var(--mantine-color-blue-6)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--mantine-color-dark-4)';
                   }}
                 >
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{item.name}</div>
+                  <Box
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--mantine-color-gray-1)',
+                      gap: 4
+                    }}
+                  >
+                    {getItemIcon(item.id, 28)}
                     <div style={{ fontSize: 10, opacity: 0.8 }}>{item.cost} pts</div>
-                  </div>
-                </Box>
-              </UnstyledButton>
+                  </Box>
+                </UnstyledButton>
+              </Tooltip>
             ))}
           </SimpleGrid>
         </Stack>
@@ -225,9 +283,17 @@ export default function InventoryBar({ onRequestImprovisation }: InventoryBarPro
           {visibleSlots.map((slotIndex, i) => {
             const item = lastSeven[slotIndex] as any | undefined;
             const usable = item && item.itemId === 'improvisation' && isDrawer && currentRoom?.status === 'choosing';
+            const itemDef = item ? itemsCatalog.find(x => x.id === item.itemId) : undefined;
             const content = item ? (
-              <Box style={{ textAlign: 'center', color: 'var(--mantine-color-gray-1)' }}>
-                <div style={{ fontWeight: 700, fontSize: 12 }}>{itemsCatalog.find(x => x.id === item.itemId)?.name ?? item.itemId}</div>
+              <Box style={{ 
+                width: '100%',
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--mantine-color-gray-1)'
+              }}>
+                {getItemIcon(item.itemId, 28)}
               </Box>
             ) : (
               <Box
@@ -245,7 +311,7 @@ export default function InventoryBar({ onRequestImprovisation }: InventoryBarPro
               </Box>
             );
             
-            return (
+            const button = (
               <UnstyledButton
                 key={i}
                 onClick={() => item && usable && handleUseItem(item.instanceId, item.itemId)}
@@ -275,11 +341,27 @@ export default function InventoryBar({ onRequestImprovisation }: InventoryBarPro
                   e.currentTarget.style.backgroundColor = 'var(--mantine-color-dark-5)';
                   e.currentTarget.style.borderColor = 'var(--mantine-color-dark-4)';
                 }}
-                title={item ? (itemsCatalog.find(x => x.id === item.itemId)?.name ?? item.itemId) : 'Vide'}
               >
                 {content}
               </UnstyledButton>
             );
+
+            return item ? (
+              <Tooltip
+                key={i}
+                label={
+                  <div>
+                    <div style={{ fontWeight: 700 }}>{itemDef?.name ?? item.itemId}</div>
+                    {itemDef?.description && <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>{itemDef.description}</div>}
+                    {!usable && <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4, fontStyle: 'italic' }}>Non utilisable maintenant</div>}
+                  </div>
+                }
+                position="top"
+                withArrow
+              >
+                {button}
+              </Tooltip>
+            ) : button;
           })}
 
           {/* Bouton pour ouvrir la boutique */}

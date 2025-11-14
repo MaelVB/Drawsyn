@@ -49,7 +49,20 @@ export interface RoomState {
 }
 
 // ===================== Items =====================
-export type ItemId = 'improvisation';
+export type ItemId = 
+  | 'party_time'
+  | 'early_bird'
+  | 'paralysis'
+  | 'improvisation'
+  | 'crt'
+  | 'unsolicited_help'
+  | 'noir_blanc'
+  | 'blackout'
+  | 'amnesia'
+  | 'unforgiving'
+  | 'roublard'
+  | 'spy'
+  | 'incognito';
 
 export interface GameItemDef {
   id: ItemId;
