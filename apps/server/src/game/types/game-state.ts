@@ -62,7 +62,11 @@ export type ItemId =
   | 'unforgiving'
   | 'roublard'
   | 'spy'
-  | 'incognito';
+  | 'incognito'
+  | 'ad_break'        // Page de pub
+  | 'minigame'        // Mini-jeu
+  | 'recent_memory'   // Mémoire récente
+  | 'heal';           // Soin
 
 export interface GameItemDef {
   id: ItemId;

@@ -25,6 +25,12 @@ export const ITEMS: Record<ItemId, GameItemDef> = {
     description: 'Permet au dessinateur de faire deviner un mot qu\'il entre lui-même.',
     cost: 100
   },
+  noir_blanc: {
+    id: 'noir_blanc',
+    name: 'Noir&Blanc',
+    description: 'Le dessinateur ne peut plus utiliser de couleur sur le reste de la manche.',
+    cost: 200
+  },
   crt: {
     id: 'crt',
     name: 'CRT',
@@ -37,10 +43,10 @@ export const ITEMS: Record<ItemId, GameItemDef> = {
     description: 'Permet à celui qui active l\'item de pouvoir dessiner pendant 15s sur le canvas.',
     cost: 300
   },
-  noir_blanc: {
-    id: 'noir_blanc',
-    name: 'Noir&Blanc',
-    description: 'Le dessinateur ne peut plus utiliser de couleur sur le reste de la manche.',
+  ad_break: {
+    id: 'ad_break',
+    name: 'Page de pub',
+    description: 'Une pop-up apparait et le joueur doit regarder une pub pendant 10s. Si le joueur ciblé a renseigné l\'URL de son Twitch, son stream s\'affiche.',
     cost: 350
   },
   blackout: {
@@ -49,11 +55,23 @@ export const ITEMS: Record<ItemId, GameItemDef> = {
     description: 'Affiche un écran noir sur le canvas jusqu\'à la fin de la manche, le joueur doit passer son curseur dessus pour révéler le dessin avec un effet lampe de poche.',
     cost: 400
   },
+  minigame: {
+    id: 'minigame',
+    name: 'Mini-jeu',
+    description: 'Un écran cache la zone de dessin et 5 formes apparaissent. Le joueur doit les colorier pour faire disparaitre l\'écran.',
+    cost: 450
+  },
   amnesia: {
     id: 'amnesia',
     name: 'Amnésie',
     description: 'Les traits du dessin disparaissent peu à peu.',
     cost: 500
+  },
+  recent_memory: {
+    id: 'recent_memory',
+    name: 'Mémoire récente',
+    description: 'Un dessin aléatoire d\'une manche précédente apparait par-dessus la zone de dessin toutes les 10s durant la manche en cours. Ce dessin est gommable.',
+    cost: 550
   },
   unforgiving: {
     id: 'unforgiving',
@@ -66,6 +84,12 @@ export const ITEMS: Record<ItemId, GameItemDef> = {
     name: 'Roublard',
     description: 'Vole un item au hasard dans l\'inventaire d\'un autre joueur.',
     cost: 750
+  },
+  heal: {
+    id: 'heal',
+    name: 'Soin',
+    description: 'Annule tous les effets négatifs en cours sur le joueur qui l\'utilise.',
+    cost: 800
   },
   spy: {
     id: 'spy',

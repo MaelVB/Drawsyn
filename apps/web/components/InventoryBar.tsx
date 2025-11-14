@@ -14,10 +14,15 @@ import {
   IconBrain,
   IconSpy,
   IconCircleDashedMinus,
+  IconGitCherryPick,
   IconDeviceTv,
   IconWriting,
   IconPaletteOff,
-  IconStereoGlasses
+  IconStereoGlasses,
+  IconBadgeAd,
+  IconDiamonds,
+  IconPhotoSquareRounded,
+  IconMedicineSyrup
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { getSocket } from '@/lib/socket';
@@ -46,12 +51,20 @@ function getItemIcon(itemId: string, size: number = 24) {
       return <IconPaletteOff size={size} />;
     case 'blackout':
       return <IconBulbOff size={size} />;
+    case 'ad_break':
+      return <IconBadgeAd size={size} />;
+    case 'minigame':
+      return <IconDiamonds size={size} />;
     case 'amnesia':
       return <IconBrain size={size} />;
+    case 'recent_memory':
+      return <IconPhotoSquareRounded size={size} />;
     case 'unforgiving':
       return <IconCircleDashedMinus size={size} />;
     case 'roublard':
-      return <IconCircleDashedMinus size={size} />;
+      return <IconGitCherryPick size={size} />;
+    case 'heal':
+      return <IconMedicineSyrup size={size} />;
     case 'spy':
       return <IconStereoGlasses size={size} />;
     case 'incognito':

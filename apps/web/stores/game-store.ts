@@ -56,7 +56,24 @@ interface GameStore {
   setItemsCatalog: (items: GameItemDef[]) => void;
 }
 
-export type ItemId = 'improvisation';
+export type ItemId =
+  | 'party_time'
+  | 'early_bird'
+  | 'paralysis'
+  | 'improvisation'
+  | 'crt'
+  | 'unsolicited_help'
+  | 'noir_blanc'
+  | 'ad_break'
+  | 'blackout'
+  | 'minigame'
+  | 'amnesia'
+  | 'recent_memory'
+  | 'unforgiving'
+  | 'roublard'
+  | 'heal'
+  | 'spy'
+  | 'incognito';
 
 export interface GameItemDef {
   id: ItemId;
