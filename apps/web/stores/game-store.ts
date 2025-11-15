@@ -49,12 +49,15 @@ interface GameStore {
   playerId?: string;
   round?: RoundState;
   itemsCatalog: GameItemDef[];
+  primaryNotification?: PrimaryNotification | null;
   setRooms: (rooms: RoomState[]) => void;
-  setCurrentRoom: (room?: RoomState) => void;
+  setCurrentRoom: (room?: RoomState | ((prev?: RoomState) => RoomState)) => void;
   setPlayerId: (playerId?: string) => void;
   setRound: (round?: RoundState) => void;
   updateRoundRemaining: (remaining: number) => void;
+  updateRoundRevealed: (revealed: string) => void;
   setItemsCatalog: (items: GameItemDef[]) => void;
+  setPrimaryNotification: (notification?: PrimaryNotification | null) => void;
 }
 
 export type ItemId =
@@ -98,14 +101,36 @@ export interface DrawingRecord {
   savedAt: number;
 }
 
+export interface PrimaryNotification {
+  id: string;
+  message: string;
+  variant?: 'info' | 'success' | 'warning' | 'danger';
+  durationMs?: number;
+  timestamp: number;
+}
+
 export const useGameStore = create<GameStore>((set) => ({
   rooms: [],
   itemsCatalog: [],
+  primaryNotification: null,
   setRooms: (rooms) => set({ rooms }),
-  setCurrentRoom: (room) => set({ currentRoom: room }),
+  setCurrentRoom: (room) =>
+    set((state) => ({
+      currentRoom:
+        typeof room === 'function'
+          ? (room as (prev?: RoomState) => RoomState)(state.currentRoom)
+          : room
+    })),
   setPlayerId: (playerId) => set({ playerId }),
-  setRound: (round) => set({ round })
-  ,
-  updateRoundRemaining: (remaining) => set((state) => state.round ? ({ round: { ...state.round, roundEndsAt: Date.now() + remaining * 1000 } }) : {}),
-  setItemsCatalog: (items) => set({ itemsCatalog: items })
+  setRound: (round) => set({ round }),
+  updateRoundRemaining: (remaining) =>
+    set((state) =>
+      state.round
+        ? { round: { ...state.round, roundEndsAt: Date.now() + remaining * 1000 } }
+        : {}
+    ),
+  updateRoundRevealed: (revealed) =>
+    set((state) => (state.round ? { round: { ...state.round, revealed } } : {})),
+  setItemsCatalog: (items) => set({ itemsCatalog: items }),
+  setPrimaryNotification: (notification) => set({ primaryNotification: notification ?? null })
 }));

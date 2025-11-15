@@ -472,6 +472,12 @@ export class GameService {
     room.round = undefined; // Pas encore de round démarré
     room.lastActivityAt = Date.now();
     this.lobby.upsertRoom(room);
+    // Informer toute la room du passage en phase de choix pour déclencher l'affichage de la modale côté clients
+    this.emitToRoom(room.id, 'room:state', {
+      ...room,
+      connectedPlayers: Object.values(room.players).filter(p => p.connected).length,
+      totalPlayers: Object.keys(room.players).length
+    });
     // Notifier uniquement le dessinateur pour choisir un mot
     this.emitToPlayer(finalDrawerId, 'round:choose', { options });
   }
@@ -587,22 +593,30 @@ export class GameService {
     
     const word = room.round.word;
     const wordLength = word.length;
-    const targetRevealCount = Math.ceil(wordLength * 0.5); // 50% du mot
+      // Maximum strict de 50% du mot (arrondi inférieur)
+      const targetRevealCount = Math.floor(wordLength * 0.5); // 50% max
     
     // Si on a déjà révélé 50% ou plus, ne rien faire
     if (room.round.revealedIndices.length >= targetRevealCount) {
       return null;
     }
     
-    const totalDuration = room.roundDuration; // en secondes
+    // Utiliser la durée effective du round (prend en compte toute réduction de timer en cours de manche)
+    const effectiveTotalSeconds = Math.max(
+      1,
+      Math.ceil((room.round.roundEndsAt - room.round.startedAt) / 1000)
+    );
     const elapsedMs = Date.now() - room.round.startedAt;
-    const elapsedSeconds = Math.floor(elapsedMs / 1000);
+    // Borner l'écoulé entre 0 et la durée effective
+    const elapsedSeconds = Math.max(0, Math.min(effectiveTotalSeconds, Math.floor(elapsedMs / 1000)));
     
     // Calculer combien de lettres devraient être révélées à ce moment
     // On révèle linéairement pour atteindre 50% à la fin
+    // Progression plus fluide: utiliser ceil pour commencer à révéler tôt,
+    // tout en respectant le plafond (min avec targetRevealCount)
     const expectedRevealCount = Math.min(
       targetRevealCount,
-      Math.floor((elapsedSeconds / totalDuration) * targetRevealCount)
+      Math.ceil((elapsedSeconds / effectiveTotalSeconds) * targetRevealCount)
     );
     
     // Si on a déjà révélé assez de lettres pour le moment, ne rien faire
@@ -704,6 +718,7 @@ export class GameService {
       scores: Object.values(room.players),
       turnIndex: room.pendingDrawing.turnIndex
     });
+    this.emitPrimaryNotification(room.id, { message: 'Manche terminée' });
     // Persist scores + message système
     this.updateGamePlayers(room);
     this.appendGameMessage(room, { type: 'system', text: `Fin manche mot="${finishedRound.word}" raison=${reason}` });
@@ -765,14 +780,22 @@ export class GameService {
 
     // Démarrer prochain tour si jeu pas terminé
     if (room.status !== 'ended') {
+      // Passer immédiatement la room en phase de choix pour informer les joueurs (modale côté clients)
       room.round = undefined; // effacer ancien round
+      room.status = 'choosing';
       this.lobby.upsertRoom(room);
-      // Démarrer le tour suivant après une courte pause (2s) pour laisser le temps au dessinateur d'envoyer son dessin
+      // Émettre l'état de room tout de suite (réduit la latence d'affichage des modales)
+      this.emitToRoom(room.id, 'room:state', {
+        ...room,
+        connectedPlayers: Object.values(room.players).filter(p => p.connected).length,
+        totalPlayers: Object.keys(room.players).length
+      });
+      // Démarrer le tour suivant après une très courte pause pour laisser le temps au dessinateur d'envoyer son dessin
       setTimeout(() => {
         const r = this.lobby.getRoom(roomId);
         if (!r || r.status === 'ended') return;
         this.startTurn(r);
-      }, 2000);
+      }, 500);
     }
   }
 
@@ -834,6 +857,17 @@ export class GameService {
     if (this.server) {
       this.server.to(roomId).emit(event, payload);
     }
+  }
+
+  private emitPrimaryNotification(
+    roomId: string,
+    payload: { message: string; variant?: 'info' | 'success' | 'warning' | 'danger'; durationMs?: number }
+  ) {
+    this.emitToRoom(roomId, 'notification:primary', {
+      id: randomUUID(),
+      timestamp: Date.now(),
+      ...payload
+    });
   }
 
   private emitToPlayer(playerId: string, event: string, payload: unknown) {

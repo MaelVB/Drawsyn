@@ -5,6 +5,7 @@ import { Providers } from '@/components/providers';
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import './globals.css';
+import EffectsOverlay from '@/components/EffectsOverlay';
 
 export const metadata: Metadata = {
   title: 'Drawsyn - Realtime Drawing Game',
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <Providers>{children}</Providers>
+        <EffectsOverlay />
       </body>
     </html>
   );

@@ -21,8 +21,10 @@ import {
   Tabs,
   Divider,
   Flex,
+  Paper,
   useComputedColorScheme
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import { IconInfoCircle, IconBrush, IconEraser, IconBucket } from '@tabler/icons-react';
 import LobbySettings from '@/components/LobbySettings';
 import InventoryBar from '@/components/InventoryBar';
@@ -31,6 +33,8 @@ import { getSocket } from '@/lib/socket';
 import { register, login } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth-store';
 import { useGameStore } from '@/stores/game-store';
+import type { PlayerState, PrimaryNotification } from '@/stores/game-store';
+import { useEffectsStore } from '@/stores/effects-store';
 
 interface GuessMessage {
   playerId: string;
@@ -54,18 +58,33 @@ export default function GameRoomPage() {
   const centerCardRef = useRef<HTMLDivElement | null>(null);
   const currentStroke = useRef<{ x: number; y: number; t: number }[]>([]);
   const hasJoinedRoomRef = useRef(false);
+  const notificationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isJoiningRoom, setIsJoiningRoom] = useState(false);
   const [rightPanelHeight, setRightPanelHeight] = useState<number | 'auto'>('auto');
 
-  const { currentRoom, playerId, round, setCurrentRoom, setPlayerId, setRound, updateRoundRemaining } = useGameStore(
+  const {
+    currentRoom,
+    playerId,
+    round,
+    setCurrentRoom,
+    setPlayerId,
+  setRound,
+  updateRoundRemaining,
+  updateRoundRevealed,
+    primaryNotification,
+    setPrimaryNotification
+  } = useGameStore(
     (state) => ({
       currentRoom: state.currentRoom,
       playerId: state.playerId,
       round: state.round,
       setCurrentRoom: state.setCurrentRoom,
       setPlayerId: state.setPlayerId,
-      setRound: state.setRound,
-      updateRoundRemaining: state.updateRoundRemaining
+  setRound: state.setRound,
+  updateRoundRemaining: state.updateRoundRemaining,
+  updateRoundRevealed: state.updateRoundRevealed,
+      primaryNotification: state.primaryNotification,
+      setPrimaryNotification: state.setPrimaryNotification
     })
   );
   const [gameId, setGameId] = useState<string | undefined>();
@@ -77,6 +96,10 @@ export default function GameRoomPage() {
   const [wordChoices, setWordChoices] = useState<string[] | null>(null);
   const [improvInstanceId, setImprovInstanceId] = useState<string | null>(null);
   const [improvWord, setImprovWord] = useState('');
+  const [partySelection, setPartySelection] = useState<{ instanceId: string } | null>(null);
+  const startHurry = useEffectsStore((s) => s.startHurry);
+  const stopHurry = useEffectsStore((s) => s.stopHurry);
+  const startPartyEffect = useEffectsStore((s) => s.startPartyEffect);
   
   // États pour les outils de dessin
   const [brushColor, setBrushColor] = useState('#000000');
@@ -95,14 +118,27 @@ export default function GameRoomPage() {
   const [authLoading, setAuthLoading] = useState(false);
   const colorScheme = useComputedColorScheme('light', { getInitialValueInEffect: true });
   const altMessageBg = useMemo(() => (colorScheme === 'dark' ? 'var(--mantine-color-dark-5)' : 'var(--mantine-color-gray-2)'), [colorScheme]);
-
+  const primaryNotificationAccent = useMemo(() => {
+    if (!primaryNotification) return 'var(--mantine-color-blue-6)';
+    switch (primaryNotification.variant) {
+      case 'success':
+        return 'var(--mantine-color-green-6)';
+      case 'warning':
+        return 'var(--mantine-color-yellow-5)';
+      case 'danger':
+        return 'var(--mantine-color-red-6)';
+      default:
+        return 'var(--mantine-color-blue-6)';
+    }
+  }, [primaryNotification]);
 
   const isDrawer = useMemo(() => round && playerId ? round.drawerId === playerId : false, [round, playerId]);
   // Nouveau : vrai si le joueur doit choisir un mot
   const isChoosingWord = useMemo(() => {
     if (!wordChoices || !currentRoom || !playerId) return false;
     // On prend le dessinateur attendu pour le round à venir
-    const drawerId = currentRoom.drawerOrder?.[currentRoom.currentRound] || null;
+    const idx = currentRoom.currentRound ?? 0;
+    const drawerId = currentRoom.drawerOrder?.[idx] || null;
     return drawerId === playerId;
   }, [wordChoices, currentRoom, playerId]);
 
@@ -239,6 +275,7 @@ export default function GameRoomPage() {
       }
       setRound(undefined);
       setWord(undefined);
+      stopHurry();
       if (payload.room) {
         setCurrentRoom(payload.room);
       }
@@ -254,14 +291,30 @@ export default function GameRoomPage() {
       clearCanvas();
     };
 
+    const handlePrimaryNotification = (payload: PrimaryNotification) => {
+      if (notificationTimeoutRef.current) {
+        clearTimeout(notificationTimeoutRef.current);
+        notificationTimeoutRef.current = null;
+      }
+      setPrimaryNotification(payload);
+      const duration = Math.max(1200, payload.durationMs ?? 3200);
+      notificationTimeoutRef.current = setTimeout(() => {
+        setPrimaryNotification(null);
+        notificationTimeoutRef.current = null;
+      }, duration);
+    };
+
     const handleTimerTick = (payload: { remaining: number; revealed?: string }) => {
       updateRoundRemaining(payload.remaining);
-      // Mettre à jour les lettres révélées si présentes
-      if (payload.revealed && round) {
-        setRound({
-          ...round,
-          revealed: payload.revealed
-        });
+      // Déclenche l'effet d'urgence pour les 5 dernières secondes
+      if (payload.remaining > 0 && payload.remaining <= 5) {
+        startHurry();
+      } else {
+        stopHurry();
+      }
+      // Mettre à jour les lettres révélées si présentes, sans dépendre d'un état potentiellement périmé
+      if (payload.revealed) {
+        updateRoundRevealed(payload.revealed);
       }
     };
 
@@ -295,6 +348,7 @@ export default function GameRoomPage() {
     const handleRoundCancelled = () => {
       setRound(undefined);
       setWord(undefined);
+      stopHurry();
       setGuesses((messages) => [
         ...messages,
         {
@@ -394,6 +448,8 @@ export default function GameRoomPage() {
     const handleDisconnect = (reason: string) => {
       console.warn('[GameRoom] 🔌 Socket déconnecté:', reason);
       setIsJoiningRoom(false);
+      // Sécurité: coupe les effets globaux
+      stopHurry();
     };
 
     socket.on('connect', handleConnect);
@@ -405,6 +461,7 @@ export default function GameRoomPage() {
     socket.on('round:word', handleRoundWord);
   socket.on('round:choose', handleRoundChoose);
     socket.on('round:ended', handleRoundEnded);
+    socket.on('notification:primary', handlePrimaryNotification);
     socket.on('game:info', (payload: { gameId: string }) => {
       setGameId(payload.gameId);
     });
@@ -491,6 +548,7 @@ export default function GameRoomPage() {
       socket.off('round:word', handleRoundWord);
   socket.off('round:choose', handleRoundChoose);
   socket.off('round:ended', handleRoundEnded);
+      socket.off('notification:primary', handlePrimaryNotification);
   socket.off('game:info');
   socket.off('game:ended');
       socket.off('round:cancelled', handleRoundCancelled);
@@ -609,15 +667,93 @@ export default function GameRoomPage() {
     setGuessText('');
   };
 
+  const handleBeginPartySelection = useCallback((instanceId: string) => {
+    setPartySelection({ instanceId });
+  }, []);
+
+  const handleCancelPartySelection = useCallback(() => {
+    setPartySelection(null);
+  }, []);
+
+  const handlePartyTargetClick = useCallback((target: PlayerState) => {
+    if (!partySelection) return;
+    if (!playerId) {
+      setPartySelection(null);
+      notifications.show({
+        title: 'Jour de fête',
+        message: 'Votre session a expiré, reconnectez-vous pour utiliser cet item.',
+        color: 'red',
+        position: 'bottom-right',
+        autoClose: 3500
+      });
+      return;
+    }
+    if (!target.connected) {
+      notifications.show({
+        title: 'Jour de fête',
+        message: `${target.name} est déconnecté, choisissez un autre joueur.`,
+        color: 'yellow',
+        position: 'bottom-right',
+        autoClose: 2800
+      });
+      return;
+    }
+    if (target.id === playerId) {
+      notifications.show({
+        title: 'Jour de fête',
+        message: 'Vous devez choisir un autre joueur pour lancer la fête.',
+        color: 'yellow',
+        position: 'bottom-right',
+        autoClose: 2600
+      });
+      return;
+    }
+
+    startPartyEffect(10000);
+    notifications.show({
+      title: 'Jour de fête',
+      message: `Vous avez utilisé l'item sur ${target.name} !`,
+      color: 'teal',
+      position: 'bottom-right',
+      autoClose: 3500
+    });
+    setPartySelection(null);
+  }, [partySelection, playerId, startPartyEffect]);
+
   useEffect(() => {
     clearCanvas();
   }, [clearCanvas]);
+
+  useEffect(() => {
+    if (!partySelection) return;
+    if (!currentRoom || !playerId) {
+      setPartySelection(null);
+      return;
+    }
+    const hasOtherConnected = Object.values(currentRoom.players || {}).some(
+      (p: PlayerState) => p.id !== playerId && p.connected
+    );
+    if (!hasOtherConnected) {
+      setPartySelection(null);
+    }
+  }, [partySelection, currentRoom, playerId]);
+
+  useEffect(() => {
+    return () => {
+      if (notificationTimeoutRef.current) {
+        clearTimeout(notificationTimeoutRef.current);
+        notificationTimeoutRef.current = null;
+      }
+      setPrimaryNotification(null);
+    };
+  }, [setPrimaryNotification]);
 
   const handleLeaveRoom = () => {
     getSocket().emit('room:leave');
     setCurrentRoom(undefined);
     setRound(undefined);
     setIsJoiningRoom(false);
+    stopHurry();
     router.push('/');
   };
 
@@ -830,6 +966,41 @@ export default function GameRoomPage() {
         </Text>
       </Modal>
 
+      {primaryNotification && (
+        <Box
+          style={{
+            position: 'fixed',
+            top: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 1000,
+            pointerEvents: 'none'
+          }}
+        >
+          <Paper
+            shadow="xl"
+            radius="xl"
+            px="xl"
+            py="sm"
+            style={{
+              background: colorScheme === 'dark' ? 'rgba(26, 27, 30, 0.92)' : 'rgba(255, 255, 255, 0.95)',
+              border: `2px solid ${primaryNotificationAccent}`,
+              color: colorScheme === 'dark' ? 'var(--mantine-color-gray-0)' : 'var(--mantine-color-dark-9)',
+              textAlign: 'center',
+              minWidth: 280,
+              pointerEvents: 'none',
+              boxShadow: `0 12px 30px rgba(0,0,0,0.2), 0 0 0 1px ${primaryNotificationAccent}`,
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase'
+            }}
+          >
+            <Text fw={700} size="lg">
+              {primaryNotification.message}
+            </Text>
+          </Paper>
+        </Box>
+      )}
+
       {/* Contenu de la room */}
       {user && (
     <Stack p="lg" gap="lg">
@@ -865,29 +1036,44 @@ export default function GameRoomPage() {
           <Divider my="md" />
           <Stack gap={8} mt="sm">
             {currentRoom?.players &&
-              Object.values(currentRoom.players).map((player) => {
+              Object.values(currentRoom.players).map((player: PlayerState) => {
                 const orderNumber = currentRoom.drawerOrder 
                   ? currentRoom.drawerOrder.indexOf(player.id) + 1 
                   : null;
+                const canSelectPartyTarget = Boolean(partySelection && player.id !== playerId && player.connected);
                 return (
-                  <Group key={player.id} justify="space-between" opacity={player.connected ? 1 : 0.5}>
-                    <Group gap={4} align="center">
-                      {orderNumber && (
-                        <Text size="sm" c="dimmed" fw={500}>{orderNumber}.</Text>
-                      )}
-                      <Text size="sm" fw={playerId === player.id ? 700 : 500}>{player.name}</Text>
-                      {currentRoom.hostId === player.id && (
-                        <Badge size="xs" color="yellow" variant="light">Hôte</Badge>
-                      )}
-                      {round?.drawerId === player.id && <IconBrush size={16} style={{ display: "block", transform: "translateY(1px)" }} />}
-                      {!player.connected && <Text size="xs" c="dimmed">(déconnecté)</Text>}
-                    </Group>
-                    <Stack gap={4} align="flex-end">
+                  <Paper
+                    key={player.id}
+                    bg={altMessageBg}
+                    p="md"
+                    radius="md"
+                    style={{
+                      cursor: canSelectPartyTarget ? 'pointer' : 'default',
+                      outline: canSelectPartyTarget ? '2px solid var(--mantine-color-pink-5)' : 'none',
+                      boxShadow: canSelectPartyTarget ? '0 0 0 2px rgba(255, 120, 203, 0.35)' : undefined,
+                      transition: 'transform 120ms ease, outline 120ms ease, box-shadow 120ms ease',
+                      transform: canSelectPartyTarget ? 'translateX(4px)' : undefined,
+                      opacity: player.connected ? 1 : 0.5
+                    }}
+                    onClick={() => canSelectPartyTarget && handlePartyTargetClick(player)}
+                  >
+                    <Group justify="space-between">
+                      <Group gap={4} align="center">
+                        {orderNumber && (
+                          <Text size="sm" c="dimmed" fw={500}>{orderNumber}.</Text>
+                        )}
+                        <Text size="sm" fw={playerId === player.id ? 700 : 500}>{player.name}</Text>
+                        {currentRoom.hostId === player.id && (
+                          <Badge size="xs" color="yellow" variant="light" style={{ display: "block", transform: "translateY(0.5px)" }}>Hôte</Badge>
+                        )}
+                        {round?.drawerId === player.id && <IconBrush size={16} style={{ display: "block", transform: "translateY(1px)" }} />}
+                        {!player.connected && <Text size="xs" c="dimmed">(déconnecté)</Text>}
+                      </Group>
                       <Badge variant={playerId === player.id ? 'filled' : 'light'} size="sm">
                         {player.score} pts
                       </Badge>
-                    </Stack>
-                  </Group>
+                    </Group>
+                  </Paper>
                 );
               })}
           </Stack>
@@ -1248,7 +1434,6 @@ export default function GameRoomPage() {
                       <SegmentedControl
                         value={brushType}
                         onChange={(value) => setBrushType(value as 'brush' | 'eraser' | 'bucket')}
-                        style={{ width: 270 }}
                         styles={{
                           root: {
                             display: 'grid',
@@ -1354,8 +1539,8 @@ export default function GameRoomPage() {
                       : message.playerId === playerId || message.playerId === 'self'
                         ? 'Vous'
                         : currentRoom?.players[message.playerId]?.name ?? '???'}
-                    :
-                  </strong>{' '}
+                    {' : '}
+                  </strong>
                   {message.text}
                 </Text>
               </Box>
@@ -1415,13 +1600,19 @@ export default function GameRoomPage() {
       )}
       
       {/* Barre d'inventaire fixe en bas */}
-      <InventoryBar onRequestImprovisation={(instanceId) => {
-        // N'autoriser que si la modal de choix est ouverte
-        if (wordChoices) {
-          setImprovInstanceId(instanceId);
-          setImprovWord('');
-        }
-      }} />
+      <InventoryBar
+        onRequestImprovisation={(instanceId) => {
+          // N'autoriser que si la modal de choix est ouverte
+          if (wordChoices) {
+            setImprovInstanceId(instanceId);
+            setImprovWord('');
+          }
+        }}
+        onRequestPartyTime={handleBeginPartySelection}
+        isPartyTimeTargeting={!!partySelection}
+        activePartyInstanceId={partySelection?.instanceId ?? null}
+        onCancelPartyTime={handleCancelPartySelection}
+      />
     </>
   );
 }

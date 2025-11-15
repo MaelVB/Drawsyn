@@ -17,3 +17,69 @@ body {
 #__next {
   height: 100%;
 }
+
+/* Global keyframes for effects overlay */
+@keyframes ds-hurry-pulse {
+  0% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes ds-confetti-fall {
+  0% {
+    transform: translate3d(0, -120vh, 0) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--confetti-drift, 0vw), 120vh, 0) rotate(540deg);
+    opacity: 0;
+  }
+}
+
+@keyframes ds-confetti-burst-left {
+  0% {
+    transform: translate3d(-20vw, 10vh, 0) scale(0.6) rotate(0deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--burst-x, 40vw), var(--burst-y, 60vh), 0) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+@keyframes ds-confetti-burst-right {
+  0% {
+    transform: translate3d(20vw, 10vh, 0) scale(0.6) rotate(0deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(calc(-1 * var(--burst-x, 40vw)), var(--burst-y, 60vh), 0) rotate(-720deg);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [style*="ds-hurry-pulse"] {
+    animation: none !important;
+    opacity: 0.5;
+  }
+  [data-ds-confetti] {
+    animation: none !important;
+    opacity: 0.35 !important;
+  }
+}

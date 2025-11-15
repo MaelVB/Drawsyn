@@ -27,9 +27,14 @@ import {
 import { notifications } from '@mantine/notifications';
 import { getSocket } from '@/lib/socket';
 import { useGameStore } from '@/stores/game-store';
+import type { PlayerItem, PlayerState } from '@/stores/game-store';
 
 interface InventoryBarProps {
   onRequestImprovisation?: (instanceId: string) => void;
+  onRequestPartyTime?: (instanceId: string) => void;
+  isPartyTimeTargeting?: boolean;
+  activePartyInstanceId?: string | null;
+  onCancelPartyTime?: () => void;
 }
 
 // Fonction helper pour obtenir l'icône d'un item
@@ -74,7 +79,13 @@ function getItemIcon(itemId: string, size: number = 24) {
   }
 }
 
-export default function InventoryBar({ onRequestImprovisation }: InventoryBarProps) {
+export default function InventoryBar({
+  onRequestImprovisation,
+  onRequestPartyTime,
+  isPartyTimeTargeting,
+  activePartyInstanceId,
+  onCancelPartyTime
+}: InventoryBarProps) {
   // isCompact = mode permanent (true = compact, false = ouvert)
   const [isCompact, setIsCompact] = useState(true);
   // isHovered = déplié temporairement au survol
@@ -92,6 +103,11 @@ export default function InventoryBar({ onRequestImprovisation }: InventoryBarPro
   const player = useMemo(() => (playerId && currentRoom ? currentRoom.players[playerId] : undefined), [currentRoom, playerId]);
   const inventory = player?.inventory ?? [];
   const score = player?.score ?? 0;
+  const targetablePlayers = useMemo(() => {
+    if (!currentRoom || !playerId) return 0;
+    return Object.values(currentRoom.players || {}).filter((p: PlayerState) => p.id !== playerId && p.connected).length;
+  }, [currentRoom, playerId]);
+  const canUsePartyTime = targetablePlayers > 0;
   // Est dessinateur: soit pendant une manche, soit pendant la phase de choix via drawerOrder/currentDrawerIndex
   const isDrawer = useMemo(() => {
     if (!playerId || !currentRoom) return false;
@@ -120,6 +136,28 @@ export default function InventoryBar({ onRequestImprovisation }: InventoryBarPro
 
   const buyDisabled = (cost: number) => score < cost;
 
+  const canUseItem = (item: PlayerItem) => {
+    switch (item.itemId) {
+      case 'improvisation':
+        return isDrawer && currentRoom?.status === 'choosing';
+      case 'party_time':
+        return canUsePartyTime;
+      default:
+        return false;
+    }
+  };
+
+  const getDisabledReason = (item: PlayerItem) => {
+    switch (item.itemId) {
+      case 'improvisation':
+        return "Non utilisable maintenant";
+      case 'party_time':
+        return canUsePartyTime ? undefined : 'Aucun autre joueur connecté';
+      default:
+        return 'Non utilisable maintenant';
+    }
+  };
+
   const handleBuy = (itemId: string) => {
     const socket = getSocket();
     socket.emit('shop:buy', { itemId });
@@ -144,6 +182,12 @@ export default function InventoryBar({ onRequestImprovisation }: InventoryBarPro
         // Consommer côté serveur immédiatement pour retirer de l'inventaire
         getSocket().emit('item:init', { instanceId });
         onRequestImprovisation(instanceId);
+      }
+    } else if (itemId === 'party_time') {
+      if (onRequestPartyTime) {
+        setIsCompact(false);
+        setIsHovered(false);
+        onRequestPartyTime(instanceId);
       }
     }
   };
@@ -246,6 +290,48 @@ export default function InventoryBar({ onRequestImprovisation }: InventoryBarPro
         }}
       >
 
+      {isPartyTimeTargeting && (
+        <Paper
+          shadow="xl"
+          radius="md"
+          p="sm"
+          style={{
+            position: 'absolute',
+            bottom: '100%',
+            left: '50%',
+            transform: 'translate(-50%, -14px)',
+            backgroundColor: 'var(--mantine-color-dark-6)',
+            border: '1px solid var(--mantine-color-pink-5)',
+            boxShadow: '0 12px 28px rgba(255, 120, 203, 0.35)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 16,
+            maxWidth: 360,
+            width: 'max-content',
+            zIndex: 1010
+          }}
+        >
+          <Group gap="sm" align="center" wrap="nowrap" style={{ flex: 1 }}>
+            <IconConfetti size={24} color="var(--mantine-color-pink-4)" />
+            <Stack gap={2} style={{ flex: 1 }}>
+              <Text fw={600} size="sm">Jour de fête prêt</Text>
+              <Text size="xs" c="dimmed">Cliquez sur un joueur à gauche pour déclencher les confettis.</Text>
+            </Stack>
+          </Group>
+          <Button
+            variant="light"
+            size="xs"
+            color="gray"
+            onClick={(event) => {
+              event.stopPropagation();
+              onCancelPartyTime?.();
+            }}
+          >
+            Annuler
+          </Button>
+        </Paper>
+      )}
+
       {/* Barre d'inventaire fixe */}
       <Paper
         shadow="xl"
@@ -294,9 +380,11 @@ export default function InventoryBar({ onRequestImprovisation }: InventoryBarPro
           
           {/* 7 emplacements d'inventaire */}
           {visibleSlots.map((slotIndex, i) => {
-            const item = lastSeven[slotIndex] as any | undefined;
-            const usable = item && item.itemId === 'improvisation' && isDrawer && currentRoom?.status === 'choosing';
+            const item = lastSeven[slotIndex] as PlayerItem | undefined;
+            const usable = item ? canUseItem(item) : false;
+            const disabledReason = item && !usable ? getDisabledReason(item) : undefined;
             const itemDef = item ? itemsCatalog.find(x => x.id === item.itemId) : undefined;
+            const isActivePartySelection = Boolean(isPartyTimeTargeting && item && activePartyInstanceId === item.instanceId);
             const content = item ? (
               <Box style={{ 
                 width: '100%',
@@ -332,27 +420,28 @@ export default function InventoryBar({ onRequestImprovisation }: InventoryBarPro
                   width: 60,
                   height: 60,
                   borderRadius: '8px',
-                  backgroundColor: 'var(--mantine-color-dark-5)',
-                  border: '2px solid var(--mantine-color-dark-4)',
+                  backgroundColor: isActivePartySelection ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-dark-5)',
+                  border: `2px solid ${isActivePartySelection ? 'var(--mantine-color-pink-5)' : 'var(--mantine-color-dark-4)'}`,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  transition: 'all 0.2s',
+                  transition: 'all 0.2s, box-shadow 0.2s',
                   cursor: item ? (usable ? 'pointer' : 'not-allowed') : 'default',
                   position: 'relative',
-                  opacity: item && !usable ? 0.5 : 1
+                  opacity: item && !usable ? 0.5 : 1,
+                  boxShadow: isActivePartySelection ? '0 0 0 3px rgba(255, 120, 203, 0.35)' : undefined
                 }}
                 onMouseEnter={(e) => {
                   if (item) {
-                    e.currentTarget.style.borderColor = 'var(--mantine-color-blue-6)';
+                    e.currentTarget.style.borderColor = isActivePartySelection ? 'var(--mantine-color-pink-5)' : 'var(--mantine-color-blue-6)';
                     if (usable) {
                       e.currentTarget.style.backgroundColor = 'var(--mantine-color-dark-4)';
                     }
                   }
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'var(--mantine-color-dark-5)';
-                  e.currentTarget.style.borderColor = 'var(--mantine-color-dark-4)';
+                  e.currentTarget.style.backgroundColor = isActivePartySelection ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-dark-5)';
+                  e.currentTarget.style.borderColor = isActivePartySelection ? 'var(--mantine-color-pink-5)' : 'var(--mantine-color-dark-4)';
                 }}
               >
                 {content}
@@ -366,7 +455,7 @@ export default function InventoryBar({ onRequestImprovisation }: InventoryBarPro
                   <div>
                     <div style={{ fontWeight: 700 }}>{itemDef?.name ?? item.itemId}</div>
                     {itemDef?.description && <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>{itemDef.description}</div>}
-                    {!usable && <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4, fontStyle: 'italic' }}>Non utilisable maintenant</div>}
+                    {disabledReason && <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4, fontStyle: 'italic' }}>{disabledReason}</div>}
                   </div>
                 }
                 position="top"
