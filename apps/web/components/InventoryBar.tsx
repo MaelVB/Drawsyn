@@ -35,6 +35,10 @@ interface InventoryBarProps {
   isPartyTimeTargeting?: boolean;
   activePartyInstanceId?: string | null;
   onCancelPartyTime?: () => void;
+  onRequestCRT?: (instanceId: string) => void;
+  isCRTTargeting?: boolean;
+  activeCRTInstanceId?: string | null;
+  onCancelCRT?: () => void;
 }
 
 // Fonction helper pour obtenir l'icône d'un item
@@ -84,7 +88,11 @@ export default function InventoryBar({
   onRequestPartyTime,
   isPartyTimeTargeting,
   activePartyInstanceId,
-  onCancelPartyTime
+  onCancelPartyTime,
+  onRequestCRT,
+  isCRTTargeting,
+  activeCRTInstanceId,
+  onCancelCRT
 }: InventoryBarProps) {
   // isCompact = mode permanent (true = compact, false = ouvert)
   const [isCompact, setIsCompact] = useState(true);
@@ -107,7 +115,7 @@ export default function InventoryBar({
     if (!currentRoom || !playerId) return 0;
     return Object.values(currentRoom.players || {}).filter((p: PlayerState) => p.id !== playerId && p.connected).length;
   }, [currentRoom, playerId]);
-  const canUsePartyTime = targetablePlayers > 0;
+  const canUseTargeted = targetablePlayers > 0;
   // Est dessinateur: soit pendant une manche, soit pendant la phase de choix via drawerOrder/currentDrawerIndex
   const isDrawer = useMemo(() => {
     if (!playerId || !currentRoom) return false;
@@ -141,7 +149,9 @@ export default function InventoryBar({
       case 'improvisation':
         return isDrawer && currentRoom?.status === 'choosing';
       case 'party_time':
-        return canUsePartyTime;
+        return canUseTargeted;
+      case 'crt':
+        return canUseTargeted;
       default:
         return false;
     }
@@ -152,7 +162,9 @@ export default function InventoryBar({
       case 'improvisation':
         return "Non utilisable maintenant";
       case 'party_time':
-        return canUsePartyTime ? undefined : 'Aucun autre joueur connecté';
+        return canUseTargeted ? undefined : 'Aucun autre joueur connecté';
+      case 'crt':
+        return canUseTargeted ? undefined : 'Aucun autre joueur connecté';
       default:
         return 'Non utilisable maintenant';
     }
@@ -188,6 +200,12 @@ export default function InventoryBar({
         setIsCompact(false);
         setIsHovered(false);
         onRequestPartyTime(instanceId);
+      }
+    } else if (itemId === 'crt') {
+      if (onRequestCRT) {
+        setIsCompact(false);
+        setIsHovered(false);
+        onRequestCRT(instanceId);
       }
     }
   };
@@ -290,7 +308,7 @@ export default function InventoryBar({
         }}
       >
 
-      {isPartyTimeTargeting && (
+      {(isPartyTimeTargeting || isCRTTargeting) && (
         <Paper
           shadow="xl"
           radius="md"
@@ -301,8 +319,8 @@ export default function InventoryBar({
             left: '50%',
             transform: 'translate(-50%, -14px)',
             backgroundColor: 'var(--mantine-color-dark-6)',
-            border: '1px solid var(--mantine-color-pink-5)',
-            boxShadow: '0 12px 28px rgba(255, 120, 203, 0.35)',
+            border: isCRTTargeting ? '1px solid var(--mantine-color-blue-5)' : '1px solid var(--mantine-color-pink-5)',
+            boxShadow: isCRTTargeting ? '0 12px 28px rgba(76, 110, 245, 0.35)' : '0 12px 28px rgba(255, 120, 203, 0.35)',
             display: 'flex',
             alignItems: 'center',
             gap: 16,
@@ -312,10 +330,14 @@ export default function InventoryBar({
           }}
         >
           <Group gap="sm" align="center" wrap="nowrap" style={{ flex: 1 }}>
-            <IconConfetti size={24} color="var(--mantine-color-pink-4)" />
+            {isCRTTargeting ? (
+              <IconDeviceTv size={24} color="var(--mantine-color-blue-4)" />
+            ) : (
+              <IconConfetti size={24} color="var(--mantine-color-pink-4)" />
+            )}
             <Stack gap={2} style={{ flex: 1 }}>
-              <Text fw={600} size="sm">Jour de fête prêt</Text>
-              <Text size="xs" c="dimmed">Cliquez sur un joueur à gauche pour déclencher les confettis.</Text>
+              <Text fw={600} size="sm">{isCRTTargeting ? 'CRT prêt' : 'Jour de fête prêt'}</Text>
+              <Text size="xs" c="dimmed">Cliquez sur un joueur à gauche pour {isCRTTargeting ? 'appliquer le filtre CRT' : 'déclencher les confettis'}.</Text>
             </Stack>
           </Group>
           <Button
@@ -324,7 +346,7 @@ export default function InventoryBar({
             color="gray"
             onClick={(event) => {
               event.stopPropagation();
-              onCancelPartyTime?.();
+              if (isCRTTargeting) onCancelCRT?.(); else onCancelPartyTime?.();
             }}
           >
             Annuler

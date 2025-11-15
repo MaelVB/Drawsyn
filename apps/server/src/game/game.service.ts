@@ -167,6 +167,16 @@ export class GameService {
     });
   }
 
+  private consumePlayerItem(room: RoomState, playerId: string, item: PlayerItem) {
+    const player = room.players[playerId];
+    if (!player) throw new Error('Player not found');
+    if (!player.inventory) player.inventory = [];
+    const idx = player.inventory.findIndex((it) => it.instanceId === item.instanceId && !it.consumed);
+    if (idx === -1) throw new Error('Item non disponible');
+    player.inventory[idx].consumed = true;
+    player.inventory.splice(idx, 1);
+  }
+
   useItem(roomId: string, playerId: string, instanceId: string, params?: any) {
     const room = this.lobby.getRoom(roomId);
     if (!room) throw new Error('Room not found');
@@ -188,6 +198,12 @@ export class GameService {
     switch (item.itemId) {
       case 'improvisation':
         this.applyImprovisation(room, playerId, item, params);
+        break;
+      case 'party_time':
+        this.applyPartyTime(room, playerId, item, params);
+        break;
+      case 'crt':
+        this.applyCrt(room, playerId, item, params);
         break;
       default:
         throw new Error('Item non pris en charge');
@@ -257,6 +273,58 @@ export class GameService {
     });
     // Envoyer le mot en privé au dessinateur
     this.emitToPlayer(round.drawerId, 'round:word', { word: round.word });
+  }
+
+  private applyPartyTime(room: RoomState, playerId: string, item: PlayerItem, params?: { targetId?: string }) {
+    const targetId = params?.targetId;
+    if (!targetId) throw new Error('Aucun joueur ciblé');
+    if (targetId === playerId) throw new Error('Cible invalide');
+    const target = room.players[targetId];
+    if (!target) throw new Error('Joueur cible introuvable');
+    if (!target.connected) throw new Error('Le joueur ciblé est déconnecté');
+
+    this.consumePlayerItem(room, playerId, item);
+
+    room.lastActivityAt = Date.now();
+    this.lobby.upsertRoom(room);
+
+    this.emitToRoom(room.id, 'room:state', {
+      ...room,
+      connectedPlayers: Object.values(room.players).filter(p => p.connected).length,
+      totalPlayers: Object.keys(room.players).length
+    });
+
+    this.emitToRoom(room.id, 'item:used', { itemId: 'party_time', playerId, targetId });
+    this.emitToPlayer(targetId, 'effect:party-time', {
+      durationMs: 10000,
+      fromPlayerId: playerId
+    });
+  }
+
+  private applyCrt(room: RoomState, playerId: string, item: PlayerItem, params?: { targetId?: string }) {
+    const targetId = params?.targetId;
+    if (!targetId) throw new Error('Aucun joueur ciblé');
+    if (targetId === playerId) throw new Error('Cible invalide');
+    const target = room.players[targetId];
+    if (!target) throw new Error('Joueur cible introuvable');
+    if (!target.connected) throw new Error('Le joueur ciblé est déconnecté');
+
+    this.consumePlayerItem(room, playerId, item);
+
+    room.lastActivityAt = Date.now();
+    this.lobby.upsertRoom(room);
+
+    this.emitToRoom(room.id, 'room:state', {
+      ...room,
+      connectedPlayers: Object.values(room.players).filter(p => p.connected).length,
+      totalPlayers: Object.keys(room.players).length
+    });
+
+    this.emitToRoom(room.id, 'item:used', { itemId: 'crt', playerId, targetId });
+    this.emitToPlayer(targetId, 'effect:crt', {
+      durationMs: 15000,
+      fromPlayerId: playerId
+    });
   }
 
   initiateImprovisation(roomId: string, playerId: string, instanceId: string) {

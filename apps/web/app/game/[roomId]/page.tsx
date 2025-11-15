@@ -28,6 +28,7 @@ import { notifications } from '@mantine/notifications';
 import { IconInfoCircle, IconBrush, IconEraser, IconBucket } from '@tabler/icons-react';
 import LobbySettings from '@/components/LobbySettings';
 import InventoryBar from '@/components/InventoryBar';
+import CrtOverlay from '@/components/CrtOverlay';
 
 import { getSocket } from '@/lib/socket';
 import { register, login } from '@/lib/api';
@@ -97,9 +98,13 @@ export default function GameRoomPage() {
   const [improvInstanceId, setImprovInstanceId] = useState<string | null>(null);
   const [improvWord, setImprovWord] = useState('');
   const [partySelection, setPartySelection] = useState<{ instanceId: string } | null>(null);
+  const [crtSelection, setCrtSelection] = useState<{ instanceId: string } | null>(null);
   const startHurry = useEffectsStore((s) => s.startHurry);
   const stopHurry = useEffectsStore((s) => s.stopHurry);
   const startPartyEffect = useEffectsStore((s) => s.startPartyEffect);
+  const stopPartyEffect = useEffectsStore((s) => s.stopPartyEffect);
+  const startCrtEffect = useEffectsStore((s) => s.startCrtEffect);
+  const stopCrtEffect = useEffectsStore((s) => s.stopCrtEffect);
   
   // États pour les outils de dessin
   const [brushColor, setBrushColor] = useState('#000000');
@@ -391,14 +396,55 @@ export default function GameRoomPage() {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
     };
 
-    const handleItemUsed = (payload: { itemId: string; playerId: string }) => {
+    const handleItemUsed = (payload: { itemId: string; playerId: string; targetId?: string }) => {
+      const state = useGameStore.getState();
+      const actorName = state.currentRoom?.players[payload.playerId]?.name ?? 'Un joueur';
+      const targetName = payload.targetId ? state.currentRoom?.players[payload.targetId]?.name : undefined;
+      const base = `${actorName} a utilisé ${payload.itemId}`;
+      const message = targetName ? `${base} sur ${targetName}` : base;
       setGuesses((messages) => [
         ...messages,
         {
           playerId: 'system',
-          text: `${currentRoom?.players[payload.playerId]?.name ?? 'Un joueur'} a utilisé ${payload.itemId}`
+          text: message
         }
       ]);
+    };
+
+    const handleEffectPartyTime = (payload: { durationMs?: number; fromPlayerId?: string }) => {
+      startPartyEffect(payload.durationMs ?? 10000);
+      if (payload.fromPlayerId) {
+        const state = useGameStore.getState();
+        const fromName = payload.fromPlayerId === playerId
+          ? 'Vous'
+          : state.currentRoom?.players[payload.fromPlayerId]?.name ?? 'Un joueur';
+        if (payload.fromPlayerId !== playerId) {
+          notifications.show({
+            title: 'Jour de fête',
+            message: `${fromName} vous couvre de confettis !`,
+            color: 'pink',
+            position: 'bottom-right',
+            autoClose: 3200
+          });
+        }
+      }
+    };
+
+    const handleEffectCrt = (payload: { durationMs?: number; fromPlayerId?: string }) => {
+      startCrtEffect(payload.durationMs ?? 15000);
+      const state = useGameStore.getState();
+      const actorId = payload.fromPlayerId;
+      const actorName = actorId ? (actorId === playerId ? 'Vous' : state.currentRoom?.players[actorId]?.name ?? 'Un joueur') : 'Un joueur';
+      const message = actorId && actorId === playerId
+        ? 'Effet CRT activé sur votre écran.'
+        : `${actorName} a activé un filtre CRT sur votre canvas.`;
+      notifications.show({
+        title: 'CRT',
+        message,
+        color: 'cyan',
+        position: 'bottom-right',
+        autoClose: 3600
+      });
     };
 
     const handleAuthError = (payload: { message?: string }) => {
@@ -519,6 +565,8 @@ export default function GameRoomPage() {
   socket.on('timer:tick', handleTimerTick);
   socket.on('guess:correct', handleGuessCorrect);
   socket.on('item:used', handleItemUsed);
+  socket.on('effect:party-time', handleEffectPartyTime);
+  socket.on('effect:crt', handleEffectCrt);
 
     // Si le socket est déjà connecté au moment du montage
     console.log('[GameRoom] 🔍 Vérification état socket:', {
@@ -561,9 +609,11 @@ export default function GameRoomPage() {
   socket.off('timer:tick', handleTimerTick);
   socket.off('guess:correct', handleGuessCorrect);
   socket.off('item:used', handleItemUsed);
+  socket.off('effect:party-time', handleEffectPartyTime);
+  socket.off('effect:crt', handleEffectCrt);
       hasJoinedRoomRef.current = false;
     };
-  }, [clearAuth, clearCanvas, drawPoints, roomId, router, setCurrentRoom, setPlayerId, setRound, user, hydrated, isJoiningRoom]);
+  }, [clearAuth, clearCanvas, drawPoints, roomId, router, setCurrentRoom, setPlayerId, setRound, user, hydrated, isJoiningRoom, startPartyEffect, startCrtEffect, playerId]);
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawer) return;
@@ -709,7 +759,9 @@ export default function GameRoomPage() {
       return;
     }
 
-    startPartyEffect(10000);
+    const socket = getSocket();
+    const instanceId = partySelection.instanceId;
+    socket.emit('item:use', { instanceId, params: { targetId: target.id } });
     notifications.show({
       title: 'Jour de fête',
       message: `Vous avez utilisé l'item sur ${target.name} !`,
@@ -718,7 +770,62 @@ export default function GameRoomPage() {
       autoClose: 3500
     });
     setPartySelection(null);
-  }, [partySelection, playerId, startPartyEffect]);
+  }, [partySelection, playerId]);
+
+  const handleBeginCrtSelection = useCallback((instanceId: string) => {
+    setCrtSelection({ instanceId });
+  }, []);
+
+  const handleCancelCrtSelection = useCallback(() => {
+    setCrtSelection(null);
+  }, []);
+
+  const handleCrtTargetClick = useCallback((target: PlayerState) => {
+    if (!crtSelection) return;
+    if (!playerId) {
+      setCrtSelection(null);
+      notifications.show({
+        title: 'CRT',
+        message: 'Votre session a expiré, reconnectez-vous pour utiliser cet item.',
+        color: 'red',
+        position: 'bottom-right',
+        autoClose: 3500
+      });
+      return;
+    }
+    if (!target.connected) {
+      notifications.show({
+        title: 'CRT',
+        message: `${target.name} est déconnecté, choisissez un autre joueur.`,
+        color: 'yellow',
+        position: 'bottom-right',
+        autoClose: 2800
+      });
+      return;
+    }
+    if (target.id === playerId) {
+      notifications.show({
+        title: 'CRT',
+        message: 'Vous devez cibler un autre joueur.',
+        color: 'yellow',
+        position: 'bottom-right',
+        autoClose: 2600
+      });
+      return;
+    }
+
+    const socket = getSocket();
+    const instanceId = crtSelection.instanceId;
+    socket.emit('item:use', { instanceId, params: { targetId: target.id } });
+    notifications.show({
+      title: 'CRT',
+      message: `Vous avez appliqué l'effet sur ${target.name}.`,
+      color: 'teal',
+      position: 'bottom-right',
+      autoClose: 3500
+    });
+    setCrtSelection(null);
+  }, [crtSelection, playerId]);
 
   useEffect(() => {
     clearCanvas();
@@ -739,6 +846,20 @@ export default function GameRoomPage() {
   }, [partySelection, currentRoom, playerId]);
 
   useEffect(() => {
+    if (!crtSelection) return;
+    if (!currentRoom || !playerId) {
+      setCrtSelection(null);
+      return;
+    }
+    const hasOtherConnected = Object.values(currentRoom.players || {}).some(
+      (p: PlayerState) => p.id !== playerId && p.connected
+    );
+    if (!hasOtherConnected) {
+      setCrtSelection(null);
+    }
+  }, [crtSelection, currentRoom, playerId]);
+
+  useEffect(() => {
     return () => {
       if (notificationTimeoutRef.current) {
         clearTimeout(notificationTimeoutRef.current);
@@ -754,6 +875,8 @@ export default function GameRoomPage() {
     setRound(undefined);
     setIsJoiningRoom(false);
     stopHurry();
+    stopPartyEffect();
+    stopCrtEffect();
     router.push('/');
   };
 
@@ -1041,6 +1164,8 @@ export default function GameRoomPage() {
                   ? currentRoom.drawerOrder.indexOf(player.id) + 1 
                   : null;
                 const canSelectPartyTarget = Boolean(partySelection && player.id !== playerId && player.connected);
+                const canSelectCrtTarget = Boolean(crtSelection && player.id !== playerId && player.connected);
+                const isSelectable = canSelectPartyTarget || canSelectCrtTarget;
                 return (
                   <Paper
                     key={player.id}
@@ -1048,14 +1173,21 @@ export default function GameRoomPage() {
                     p="md"
                     radius="md"
                     style={{
-                      cursor: canSelectPartyTarget ? 'pointer' : 'default',
-                      outline: canSelectPartyTarget ? '2px solid var(--mantine-color-pink-5)' : 'none',
-                      boxShadow: canSelectPartyTarget ? '0 0 0 2px rgba(255, 120, 203, 0.35)' : undefined,
+                      cursor: isSelectable ? 'pointer' : 'default',
+                      outline: isSelectable
+                        ? (canSelectCrtTarget ? '2px solid var(--mantine-color-blue-5)' : '2px solid var(--mantine-color-pink-5)')
+                        : 'none',
+                      boxShadow: isSelectable
+                        ? (canSelectCrtTarget ? '0 0 0 2px rgba(76, 110, 245, 0.35)' : '0 0 0 2px rgba(255, 120, 203, 0.35)')
+                        : undefined,
                       transition: 'transform 120ms ease, outline 120ms ease, box-shadow 120ms ease',
-                      transform: canSelectPartyTarget ? 'translateX(4px)' : undefined,
+                      transform: isSelectable ? 'translateX(4px)' : undefined,
                       opacity: player.connected ? 1 : 0.5
                     }}
-                    onClick={() => canSelectPartyTarget && handlePartyTargetClick(player)}
+                    onClick={() => {
+                      if (canSelectPartyTarget) return handlePartyTargetClick(player);
+                      if (canSelectCrtTarget) return handleCrtTargetClick(player);
+                    }}
                   >
                     <Group justify="space-between">
                       <Group gap={4} align="center">
@@ -1134,6 +1266,7 @@ export default function GameRoomPage() {
                     onPointerLeave={handlePointerUp}
                     onPointerCancel={handlePointerUp}
                   />
+                  <CrtOverlay />
                   {isDrawer && cursorPos.visible && brushType !== 'bucket' && (
                     <div
                       style={{
@@ -1612,6 +1745,10 @@ export default function GameRoomPage() {
         isPartyTimeTargeting={!!partySelection}
         activePartyInstanceId={partySelection?.instanceId ?? null}
         onCancelPartyTime={handleCancelPartySelection}
+        onRequestCRT={handleBeginCrtSelection}
+        isCRTTargeting={!!crtSelection}
+        activeCRTInstanceId={crtSelection?.instanceId ?? null}
+        onCancelCRT={handleCancelCrtSelection}
       />
     </>
   );

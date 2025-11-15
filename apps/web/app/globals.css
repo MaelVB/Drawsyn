@@ -73,6 +73,35 @@ body {
   }
 }
 
+@keyframes ds-crt-flicker {
+  0% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes ds-crt-roll {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.3;
+  }
+  90% {
+    opacity: 0.3;
+  }
+  100% {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   [style*="ds-hurry-pulse"] {
     animation: none !important;
@@ -81,5 +110,9 @@ body {
   [data-ds-confetti] {
     animation: none !important;
     opacity: 0.35 !important;
+  }
+  [data-ds-crt] {
+    animation: none !important;
+    opacity: 0.4 !important;
   }
 }
