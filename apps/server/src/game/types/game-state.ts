@@ -16,6 +16,8 @@ export interface RoundState {
   roundEndsAt: number;
   drawerId: string;
   startedAt: number;
+  // Index séquentiel du tour (chaque dessin / passage d'un joueur) pour associer le dessin
+  turnIndex: number;
   // Joueurs (hors dessinateur) qui ont déjà trouvé
   guessedPlayerIds: string[];
   // Raison de fin possible: timeout | all-guessed | next-turn | game-ended | cancelled
@@ -36,6 +38,8 @@ export interface RoomState {
   status: 'lobby' | 'choosing' | 'running' | 'ended';
   createdAt: number;
   lastActivityAt: number;
+  // Compteur des tours (chaque fois qu'un dessinateur commence une manche)
+  turnCounter?: number;
   // Configuration du nombre total de rounds (une "rotation" complète des joueurs = 1 round)
   totalRounds?: number;
   currentRound?: number; // démarre à 1
@@ -46,6 +50,15 @@ export interface RoomState {
   pendingWordChoices?: string[];
   // Instance pré-consommée de l'item Improvisation (pour saisie du mot)
   pendingImprovisationInstanceId?: string;
+  // Round terminé en attente de soumission du dessin
+  pendingDrawing?: {
+    turnIndex: number;
+    drawerId: string;
+    word: string;
+    endedAt: number;
+  };
+  // Historique des dessins soumis
+  drawings?: DrawingRecord[];
 }
 
 // ===================== Items =====================
@@ -80,4 +93,14 @@ export interface PlayerItem {
   itemId: ItemId;
   acquiredAt: number;
   consumed?: boolean;
+}
+
+// Représente un dessin sauvegardé à la fin d'un tour
+export interface DrawingRecord {
+  turnIndex: number;
+  drawerId: string;
+  word: string;
+  imageData: string; // data URL base64 (ex: data:image/png;base64,...)
+  savedAt: number;
+  filePath?: string; // chemin relatif du fichier sauvegardé sur le disque
 }

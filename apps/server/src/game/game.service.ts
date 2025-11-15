@@ -1,11 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import type { Server } from 'socket.io';
 
 import { CreateRoomDto } from './dto/create-room.dto';
 import { GuessDto } from './dto/guess.dto';
 import { UpdateRoomSettingsDto } from './dto/update-room-settings.dto';
 import { LobbyService } from './lobby.service';
-import { PlayerState, RoomState, ItemId, PlayerItem } from './types/game-state';
+import { PlayerState, RoomState, ItemId, PlayerItem, DrawingRecord } from './types/game-state';
+import { Game } from './schemas/game.schema';
+import * as fs from 'fs';
+import * as path from 'path';
 import { listItems, ITEMS } from './items/items.registry';
 import { randomUUID } from 'crypto';
 
@@ -27,7 +32,7 @@ export class GameService {
   private server?: Server; // Attaché par le gateway pour pouvoir émettre des events
   private readonly timers = new Map<string, NodeJS.Timeout>();
 
-  constructor(private readonly lobby: LobbyService) {}
+  constructor(private readonly lobby: LobbyService, @InjectModel(Game.name) private readonly gameModel: Model<Game>) {}
 
   listRooms(): RoomState[] {
     return this.lobby.listRooms();
@@ -229,7 +234,8 @@ export class GameService {
       roundEndsAt: Date.now() + room.roundDuration * 1000,
       guessedPlayerIds: [],
       revealedIndices: [],
-      totalScore
+      totalScore,
+      turnIndex: (room.turnCounter = (room.turnCounter ?? 0) + 1)
     };
     room.round = round;
     room.status = 'running';
@@ -515,7 +521,8 @@ export class GameService {
       roundEndsAt: Date.now() + room.roundDuration * 1000,
       guessedPlayerIds: [],
       revealedIndices: [],
-      totalScore
+      totalScore,
+      turnIndex: (room.turnCounter = (room.turnCounter ?? 0) + 1)
     };
     room.round = round;
     room.status = 'running';
@@ -535,6 +542,8 @@ export class GameService {
     });
     // Envoyer le mot en privé au dessinateur
     this.emitToPlayer(round.drawerId, 'round:word', { word: round.word });
+    // Mise à jour des scores persistés (aucun changement de score ici mais synchro présence)
+    this.updateGamePlayers(room);
   }
 
   private startTimer(roomId: string) {
@@ -676,7 +685,15 @@ export class GameService {
     const drawer = room.players[finishedRound.drawerId];
     if (drawer) drawer.isDrawing = false;
 
-    // Emit fin
+    // Préparer soumission du dessin
+    room.pendingDrawing = {
+      turnIndex: finishedRound['turnIndex'] ?? (room.turnCounter ?? 0),
+      drawerId: finishedRound.drawerId,
+      word: finishedRound.word,
+      endedAt: Date.now()
+    };
+
+    // Emit fin (inclure turnIndex)
     this.emitToRoom(room.id, 'round:ended', {
       word: finishedRound.word,
       drawerId: finishedRound.drawerId,
@@ -684,8 +701,12 @@ export class GameService {
       reason,
       currentRound: room.currentRound,
       totalRounds: room.totalRounds,
-      scores: Object.values(room.players)
+      scores: Object.values(room.players),
+      turnIndex: room.pendingDrawing.turnIndex
     });
+    // Persist scores + message système
+    this.updateGamePlayers(room);
+    this.appendGameMessage(room, { type: 'system', text: `Fin manche mot="${finishedRound.word}" raison=${reason}` });
 
     // Vérifier s'il reste des joueurs connectés
     const connectedPlayers = Object.values(room.players).filter(p => p.connected);
@@ -727,8 +748,11 @@ export class GameService {
             this.lobby.upsertRoom(room);
             this.emitToRoom(room.id, 'game:ended', {
               totalRounds: room.totalRounds,
-              scores: Object.values(room.players)
+              scores: Object.values(room.players),
+              drawings: room.drawings ?? [],
+              gameId: (room as any).gameId
             });
+            this.finalizeGame(room);
             return;
         } else {
           this.emitToRoom(room.id, 'game:next-round', {
@@ -743,7 +767,12 @@ export class GameService {
     if (room.status !== 'ended') {
       room.round = undefined; // effacer ancien round
       this.lobby.upsertRoom(room);
-      this.startTurn(room);
+      // Démarrer le tour suivant après une courte pause (2s) pour laisser le temps au dessinateur d'envoyer son dessin
+      setTimeout(() => {
+        const r = this.lobby.getRoom(roomId);
+        if (!r || r.status === 'ended') return;
+        this.startTurn(r);
+      }, 2000);
     }
   }
 
@@ -771,7 +800,25 @@ export class GameService {
     // Initialiser round global
     room.currentRound = 1;
     room.currentDrawerIndex = -1; // pour démarrer sur dernier joueur
+    room.turnCounter = 0;
+    room.drawings = [];
+    room.pendingDrawing = undefined;
     this.lobby.upsertRoom(room);
+    // Créer en base la game (async fire & forget)
+    const gameId = `${room.id}_${Date.now()}`;
+    (room as any).gameId = gameId;
+    this.gameModel.create({
+      gameId,
+      roomId: room.id,
+      status: 'running',
+      totalRounds: room.totalRounds ?? 1,
+      currentRound: room.currentRound ?? 1,
+      players: Object.values(room.players).map(p => ({ playerId: p.id, pseudo: p.name, score: p.score })),
+      drawings: [],
+      messages: []
+    }).then(() => this.logger.log(`Game persisted: ${gameId}`)).catch(e => this.logger.warn(`Persist game failed: ${(e as Error).message}`));
+    // Informer clients
+    this.emitToRoom(room.id, 'game:info', { gameId });
     this.startTurn(room);
     return room.round;
   }
@@ -792,6 +839,132 @@ export class GameService {
   private emitToPlayer(playerId: string, event: string, payload: unknown) {
     if (this.server) {
       this.server.to(playerId).emit(event, payload);
+    }
+  }
+
+  // ===================== Dessins =====================
+  submitDrawing(roomId: string, playerId: string, payload: { imageData: string; word: string; turnIndex: number }) {
+    const room = this.lobby.getRoom(roomId);
+    if (!room) throw new Error('Room not found');
+    if (!room.pendingDrawing) throw new Error('Aucun dessin en attente');
+    if (room.pendingDrawing.drawerId !== playerId) throw new Error('Seul le dessinateur peut soumettre le dessin');
+    if (room.pendingDrawing.turnIndex !== payload.turnIndex) throw new Error('turnIndex invalide');
+    if (room.pendingDrawing.word !== payload.word) throw new Error('Mot invalide');
+    if (!payload.imageData.startsWith('data:image/')) throw new Error('Format image invalide');
+
+    if (!room.drawings) room.drawings = [];
+    const exists = room.drawings.find(d => d.turnIndex === payload.turnIndex);
+    if (exists) return exists;
+    const record: DrawingRecord = {
+      turnIndex: payload.turnIndex,
+      drawerId: playerId,
+      word: payload.word,
+      imageData: payload.imageData,
+      savedAt: Date.now()
+    };
+    // Écriture sur disque (best effort, non bloquant pour l'utilisateur)
+    try {
+      const drawingsDir = process.env.DRAWINGS_DIR || path.join(process.cwd(), 'data', 'drawings');
+      if (!fs.existsSync(drawingsDir)) {
+        fs.mkdirSync(drawingsDir, { recursive: true });
+      }
+      // Sanitize éléments pour le nom du fichier
+      const safeRoom = room.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const safeDrawer = playerId.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const ts = record.savedAt;
+      const filename = `${safeRoom}_turn${record.turnIndex}_${safeDrawer}_${ts}.png`;
+      const filePath = path.join(drawingsDir, filename);
+      const base64 = payload.imageData.split(',')[1];
+      const buffer = Buffer.from(base64, 'base64');
+      fs.writeFileSync(filePath, buffer);
+      // Stocker chemin relatif pour usage futur
+      record.filePath = path.relative(process.cwd(), filePath);
+    } catch (err) {
+      this.logger.warn(`Échec sauvegarde fichier dessin: ${(err as Error).message}`);
+    }
+    room.drawings.push(record);
+  // Persistance dessin sans base64
+  this.appendGameDrawing(room, record);
+    room.pendingDrawing = undefined;
+    room.lastActivityAt = Date.now();
+    this.lobby.upsertRoom(room);
+    // Mise à jour room state (inclut drawings)
+    this.emitToRoom(room.id, 'room:state', {
+      ...room,
+      connectedPlayers: Object.values(room.players).filter(p => p.connected).length,
+      totalPlayers: Object.keys(room.players).length
+    });
+    return record;
+  }
+
+  // ===================== Persistence Helpers =====================
+  private async updateGamePlayers(room: RoomState) {
+    const gameId = (room as any).gameId;
+    if (!gameId) return;
+    try {
+      await this.gameModel.updateOne({ gameId }, {
+        $set: {
+          currentRound: room.currentRound ?? 1,
+          players: Object.values(room.players).map(p => ({ playerId: p.id, pseudo: p.name, score: p.score }))
+        }
+      }).exec();
+    } catch (e) {
+      this.logger.warn(`updateGamePlayers failed: ${(e as Error).message}`);
+    }
+  }
+
+  private async appendGameDrawing(room: RoomState, record: DrawingRecord) {
+    const gameId = (room as any).gameId;
+    if (!gameId || !record.filePath) return;
+    try {
+      await this.gameModel.updateOne({ gameId }, {
+        $push: {
+          drawings: {
+            turnIndex: record.turnIndex,
+            drawerId: record.drawerId,
+            word: record.word,
+            filePath: record.filePath
+          }
+        }
+      }).exec();
+    } catch (e) {
+      this.logger.warn(`appendGameDrawing failed: ${(e as Error).message}`);
+    }
+  }
+
+  logMessage(roomId: string, playerId: string | undefined, type: 'guess' | 'correct' | 'system', text: string) {
+    const room = this.lobby.getRoom(roomId);
+    if (!room) return;
+    this.appendGameMessage(room, { type, text, playerId });
+  }
+
+  private async appendGameMessage(room: RoomState, msg: { type: 'guess' | 'correct' | 'system'; text: string; playerId?: string }) {
+    const gameId = (room as any).gameId;
+    if (!gameId) return;
+    try {
+      await this.gameModel.updateOne({ gameId }, {
+        $push: {
+          messages: {
+            at: Date.now(),
+            type: msg.type,
+            playerId: msg.playerId,
+            text: msg.text
+          }
+        }
+      }).exec();
+    } catch (e) {
+      this.logger.warn(`appendGameMessage failed: ${(e as Error).message}`);
+    }
+  }
+
+  private async finalizeGame(room: RoomState) {
+    const gameId = (room as any).gameId;
+    if (!gameId) return;
+    try {
+      await this.gameModel.updateOne({ gameId }, { $set: { status: 'ended' } }).exec();
+      this.logger.log(`Game finalized: ${gameId}`);
+    } catch (e) {
+      this.logger.warn(`finalizeGame failed: ${(e as Error).message}`);
     }
   }
 }

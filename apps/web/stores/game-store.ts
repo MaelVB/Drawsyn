@@ -32,6 +32,7 @@ export interface RoomState {
     revealed: string;
     guessedPlayerIds?: string[];
   };
+  drawings?: DrawingRecord[];
 }
 
 
@@ -87,6 +88,14 @@ export interface PlayerItem {
   itemId: ItemId;
   acquiredAt: number;
   consumed?: boolean;
+}
+
+export interface DrawingRecord {
+  turnIndex: number;
+  drawerId: string;
+  word: string;
+  imageData: string;
+  savedAt: number;
 }
 
 export const useGameStore = create<GameStore>((set) => ({

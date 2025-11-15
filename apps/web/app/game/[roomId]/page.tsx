@@ -68,6 +68,7 @@ export default function GameRoomPage() {
       updateRoundRemaining: state.updateRoundRemaining
     })
   );
+  const [gameId, setGameId] = useState<string | undefined>();
 
   const [word, setWord] = useState<string | undefined>();
   const [guesses, setGuesses] = useState<GuessMessage[]>([]);
@@ -95,7 +96,28 @@ export default function GameRoomPage() {
   const colorScheme = useComputedColorScheme('light', { getInitialValueInEffect: true });
   const altMessageBg = useMemo(() => (colorScheme === 'dark' ? 'var(--mantine-color-dark-5)' : 'var(--mantine-color-gray-2)'), [colorScheme]);
 
+
   const isDrawer = useMemo(() => round && playerId ? round.drawerId === playerId : false, [round, playerId]);
+  // Nouveau : vrai si le joueur doit choisir un mot
+  const isChoosingWord = useMemo(() => {
+    if (!wordChoices || !currentRoom || !playerId) return false;
+    // On prend le dessinateur attendu pour le round à venir
+    const drawerId = currentRoom.drawerOrder?.[currentRoom.currentRound] || null;
+    return drawerId === playerId;
+  }, [wordChoices, currentRoom, playerId]);
+
+  // Affiche la modal d'attente pour les non-dessinateurs quand le dessinateur choisit un mot
+  const showWaitingForWordModal = useMemo(() => {
+    if (!currentRoom || !playerId) return false;
+    if (currentRoom.status !== 'choosing') return false;
+    // Utiliser l'état global de la room pour identifier le dessinateur en phase de choix
+    if (currentRoom.drawerOrder && typeof currentRoom.currentDrawerIndex === 'number') {
+      const drawerId = currentRoom.drawerOrder[currentRoom.currentDrawerIndex] as string | undefined;
+      return drawerId !== playerId;
+    }
+    // Par défaut, afficher aux non-dessinateurs
+    return true;
+  }, [currentRoom, playerId]);
 
   const clearCanvas = useCallback(() => {
     const canvas = canvasRef.current;
@@ -200,6 +222,21 @@ export default function GameRoomPage() {
     };
 
     const handleRoundEnded = (payload: any) => {
+      // Si nous sommes le dessinateur, capturer le canvas AVANT effacement
+      const wasDrawer = round && playerId && round.drawerId === playerId;
+      if (wasDrawer && canvasRef.current) {
+        try {
+          const dataUrl = canvasRef.current.toDataURL('image/png');
+          getSocket().emit('drawing:submit', {
+            roomId,
+            imageData: dataUrl,
+            word: payload.word,
+            turnIndex: payload.turnIndex
+          });
+        } catch (e) {
+          console.error('[GameRoom] Erreur capture dessin:', e);
+        }
+      }
       setRound(undefined);
       setWord(undefined);
       if (payload.room) {
@@ -368,6 +405,53 @@ export default function GameRoomPage() {
     socket.on('round:word', handleRoundWord);
   socket.on('round:choose', handleRoundChoose);
     socket.on('round:ended', handleRoundEnded);
+    socket.on('game:info', (payload: { gameId: string }) => {
+      setGameId(payload.gameId);
+    });
+    socket.on('game:ended', (payload: { totalRounds: number; scores: any[]; drawings?: any[]; gameId?: string }) => {
+      if (payload.gameId) setGameId(payload.gameId);
+      // Fusionner les scores dans currentRoom ou créer un état minimal s'il a disparu
+      setCurrentRoom((prev) => {
+        if (!prev) {
+          const players = Object.fromEntries(
+            (payload.scores || []).map((p: any) => [p.id, p])
+          );
+          return {
+            id: 'final',
+            name: 'Partie terminée',
+            maxPlayers: Object.keys(players).length,
+            roundDuration: 0,
+            players,
+            status: 'ended',
+            createdAt: Date.now(),
+            drawings: payload.drawings ?? [],
+            totalRounds: payload.totalRounds,
+            currentRound: payload.totalRounds,
+            gameId: payload.gameId
+          } as any; // cast pour conserver compatibilité
+        }
+        const mergedPlayers = { ...prev.players };
+        (payload.scores || []).forEach((p: any) => {
+          if (mergedPlayers[p.id]) {
+            mergedPlayers[p.id].score = p.score;
+            mergedPlayers[p.id].connected = p.connected;
+          } else {
+            mergedPlayers[p.id] = p;
+          }
+        });
+        return {
+          ...prev,
+          status: 'ended',
+          drawings: payload.drawings ?? prev.drawings,
+          players: mergedPlayers,
+          gameId: payload.gameId ?? (prev as any).gameId
+        };
+      });
+      setGuesses((messages) => [
+        ...messages,
+        { playerId: 'system', text: 'La partie est terminée !' }
+      ]);
+    });
     socket.on('round:cancelled', handleRoundCancelled);
     socket.on('guess:submitted', handleGuessSubmitted);
   socket.on('room:error', handleRoomError);
@@ -406,7 +490,9 @@ export default function GameRoomPage() {
       socket.off('round:started', handleRoundStarted);
       socket.off('round:word', handleRoundWord);
   socket.off('round:choose', handleRoundChoose);
-      socket.off('round:ended', handleRoundEnded);
+  socket.off('round:ended', handleRoundEnded);
+  socket.off('game:info');
+  socket.off('game:ended');
       socket.off('round:cancelled', handleRoundCancelled);
       socket.off('guess:submitted', handleGuessSubmitted);
       socket.off('room:error', handleRoomError);
@@ -730,6 +816,20 @@ export default function GameRoomPage() {
         </Stack>
       </Modal>
 
+      {/* Modal d'attente du choix du mot par le dessinateur */}
+      <Modal
+        opened={!!showWaitingForWordModal}
+        onClose={() => {}}
+        withCloseButton={false}
+        closeOnClickOutside={false}
+        closeOnEscape={false}
+        centered
+      >
+        <Text size="lg" ta="center">
+          Le dessinateur est en train de choisir le prochain mot…
+        </Text>
+      </Modal>
+
       {/* Contenu de la room */}
       {user && (
     <Stack p="lg" gap="lg">
@@ -755,7 +855,7 @@ export default function GameRoomPage() {
         </Alert>
       )}
 
-      <Group align="flex-start" justify="center" gap="lg" wrap="nowrap">
+  <Group align="flex-start" justify="center" gap="lg" wrap="nowrap">
         {/* Colonne de gauche - Joueurs */}
         <Card withBorder padding="md" radius="md" style={{ width: 250, flexShrink: 0 }}>
           <Title order={4} ta="center">Joueurs</Title>
@@ -764,7 +864,7 @@ export default function GameRoomPage() {
           </Text>
           <Divider my="md" />
           <Stack gap={8} mt="sm">
-            {currentRoom &&
+            {currentRoom?.players &&
               Object.values(currentRoom.players).map((player) => {
                 const orderNumber = currentRoom.drawerOrder 
                   ? currentRoom.drawerOrder.indexOf(player.id) + 1 
@@ -795,7 +895,7 @@ export default function GameRoomPage() {
 
         {/* Centre - Zone dynamique: Canvas ou Lobby Settings */}
         <Stack gap="sm" style={{ flexShrink: 0 }}>
-          {round ? (
+          {currentRoom && currentRoom.status !== 'lobby' && currentRoom.status !== 'ended' ? (
             <>
               <Card withBorder padding="md" radius="md" ref={centerCardRef}>
                 {/* En-tête de manche: mot centré, round à gauche, timer à droite sur la même ligne */}
@@ -827,7 +927,7 @@ export default function GameRoomPage() {
                     fw={700}
                     style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)' }}
                   >
-                    {Math.max(0, Math.round((round.roundEndsAt - Date.now()) / 1000))}s
+                    {round ? Math.max(0, Math.round((round.roundEndsAt - Date.now()) / 1000)) : ''}s
                   </Text>
                 </Box>
                 <Divider my="md" />
@@ -1148,32 +1248,53 @@ export default function GameRoomPage() {
                       <SegmentedControl
                         value={brushType}
                         onChange={(value) => setBrushType(value as 'brush' | 'eraser' | 'bucket')}
+                        style={{ width: 270 }}
+                        styles={{
+                          root: {
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(3, 1fr)',
+                            width: '100%'
+                          },
+                          label: {
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: 4,
+                            lineHeight: 1.1,
+                            paddingTop: 6,
+                            paddingBottom: 6
+                          },
+                          control: {
+                            height: 'auto',
+                            width: '100%'
+                          }
+                        }}
                         data={[
                           { 
                             value: 'brush', 
                             label: (
-                              <Group gap={4} justify="center">
+                              <Stack gap={2} align="center" justify="center">
                                 <IconBrush size={16} />
-                                <span>Pinceau</span>
-                              </Group>
+                                <Text size="xs">Pinceau</Text>
+                              </Stack>
                             )
                           },
                           { 
                             value: 'eraser', 
                             label: (
-                              <Group gap={4} justify="center">
+                              <Stack gap={2} align="center" justify="center">
                                 <IconEraser size={16} />
-                                <span>Gomme</span>
-                              </Group>
+                                <Text size="xs">Gomme</Text>
+                              </Stack>
                             )
                           },
                           { 
                             value: 'bucket', 
                             label: (
-                              <Group gap={4} justify="center">
+                              <Stack gap={2} align="center" justify="center">
                                 <IconBucket size={16} />
-                                <span>Seau</span>
-                              </Group>
+                                <Text size="xs">Seau</Text>
+                              </Stack>
                             )
                           }
                         ]}
@@ -1260,6 +1381,36 @@ export default function GameRoomPage() {
           </Group>
         </Card>
       </Group>
+      {/* Section finale: afficher les dessins à la fin du jeu */}
+      {currentRoom?.status === 'ended' && currentRoom.drawings && currentRoom.drawings.length > 0 && (
+        <Card withBorder padding="md" radius="md">
+          <Title order={3} mb="md">Dessins de la partie</Title>
+          <Group wrap="wrap" gap="md">
+            {currentRoom.drawings.sort((a,b) => a.turnIndex - b.turnIndex).map(d => (
+              <Stack key={d.turnIndex} gap={4} style={{ width: 180 }}>
+                <Box
+                  style={{
+                    width: '100%',
+                    aspectRatio: '3/2',
+                    backgroundColor: '#444',
+                    overflow: 'hidden',
+                    borderRadius: 8,
+                    border: '1px solid var(--mantine-color-gray-4)'
+                  }}
+                >
+                  <img
+                    src={d.imageData}
+                    alt={d.word}
+                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                  />
+                </Box>
+                <Text size="sm" fw={600} ta="center">{d.word}</Text>
+                <Text size="xs" c="dimmed" ta="center">par {currentRoom.players[d.drawerId]?.name || 'Inconnu'}</Text>
+              </Stack>
+            ))}
+          </Group>
+        </Card>
+      )}
     </Stack>
       )}
       

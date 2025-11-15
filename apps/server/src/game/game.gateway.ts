@@ -15,6 +15,7 @@ import { AuthService, AuthenticatedUser } from '../auth/auth.service';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { DrawSegmentDto } from './dto/draw-segment.dto';
 import { GuessDto } from './dto/guess.dto';
+import { SubmitDrawingDto } from './dto/submit-drawing.dto';
 import { JoinRoomDto } from './dto/join-room.dto';
 import { UpdateRoomSettingsDto } from './dto/update-room-settings.dto';
 import { GameService } from './game.service';
@@ -300,11 +301,32 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (result.correct) {
       // Les events de fin ou tick sont gérés par GameService; ici on notifie juste la proposition correcte est déjà émise par le service
       this.emitRoomState(connection.roomId);
+      this.game.logMessage(connection.roomId, connection.playerId, 'correct', dto.text.trim());
     } else {
       client.to(connection.roomId).emit('guess:submitted', {
         playerId: connection.playerId,
         text: dto.text
       });
+      this.game.logMessage(connection.roomId, connection.playerId, 'guess', dto.text.trim());
+    }
+  }
+
+  // Soumission du dessin (data URL) par le dessinateur après la fin de manche
+  @SubscribeMessage('drawing:submit')
+  handleSubmitDrawing(@ConnectedSocket() client: Socket, @MessageBody() dto: SubmitDrawingDto) {
+    const connection = this.connections.get(client.id);
+    if (!connection || !connection.roomId || !connection.playerId) {
+      client.emit('auth:error', { message: 'Authentification requise' });
+      return;
+    }
+    try {
+      this.game.submitDrawing(connection.roomId, connection.playerId, {
+        imageData: dto.imageData,
+        word: dto.word,
+        turnIndex: dto.turnIndex
+      });
+    } catch (error) {
+      client.emit('room:error', { message: (error as Error).message });
     }
   }
 
@@ -357,7 +379,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.server.to(roomId).emit('room:state', {
         ...room,
         connectedPlayers,
-        totalPlayers
+        totalPlayers,
+        drawings: room.drawings ?? [],
+        pendingDrawing: room.pendingDrawing ?? undefined,
+        gameId: (room as any).gameId
       });
     }
   }
