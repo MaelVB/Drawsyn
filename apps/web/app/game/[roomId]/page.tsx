@@ -16,6 +16,7 @@ import {
   Slider,
   SegmentedControl,
   Box,
+  Tooltip,
   Modal,
   PasswordInput,
   Tabs,
@@ -100,6 +101,8 @@ export default function GameRoomPage() {
   const [improvWord, setImprovWord] = useState('');
   const [partySelection, setPartySelection] = useState<{ instanceId: string } | null>(null);
   const [crtSelection, setCrtSelection] = useState<{ instanceId: string } | null>(null);
+  // Equipes: suivi local des joueurs dont l'équipe est connue (en plus de la vôtre)
+  const [knownTeamPlayerIds, setKnownTeamPlayerIds] = useState<Set<string>>(new Set());
   const startHurry = useEffectsStore((s) => s.startHurry);
   const stopHurry = useEffectsStore((s) => s.stopHurry);
   const startPartyEffect = useEffectsStore((s) => s.startPartyEffect);
@@ -141,6 +144,26 @@ export default function GameRoomPage() {
   }, [primaryNotification]);
 
   const isDrawer = useMemo(() => round && playerId ? round.drawerId === playerId : false, [round, playerId]);
+  // Team du joueur courant
+  const viewerTeamId = useMemo(() => {
+    if (!currentRoom || !playerId) return undefined;
+    return currentRoom.players[playerId]?.teamId;
+  }, [currentRoom, playerId]);
+  // Index stable T1/T2/... par teamId présent dans la room
+  const teamIndexById = useMemo(() => {
+    if (!currentRoom?.players) return {} as Record<string, number>;
+    const ids = Array.from(
+      new Set(
+        Object.values(currentRoom.players)
+          .map((p: PlayerState) => p.teamId)
+          .filter((t): t is string => Boolean(t))
+      )
+    ).sort();
+    const map: Record<string, number> = {};
+    ids.forEach((id, i) => (map[id] = i + 1));
+    return map;
+  }, [currentRoom]);
+  const teamColors = ['blue', 'green', 'red', 'grape', 'teal', 'orange', 'violet', 'cyan', 'pink', 'lime'] as const;
   // Nouveau : vrai si le joueur doit choisir un mot
   const isChoosingWord = useMemo(() => {
     if (!wordChoices || !currentRoom || !playerId) return false;
@@ -421,6 +444,25 @@ export default function GameRoomPage() {
       ]);
     };
 
+    // Révélation d'équipes: le serveur peut envoyer une liste de joueurs ou un teamId entier
+    const handleTeamsRevealed = (payload: { playerIds?: string[]; teamId?: string }) => {
+      setKnownTeamPlayerIds((prev) => {
+        const next = new Set(prev);
+        if (Array.isArray(payload.playerIds)) {
+          payload.playerIds.forEach((id) => next.add(id));
+        }
+        if (payload.teamId) {
+          const room = useGameStore.getState().currentRoom;
+          if (room?.players) {
+            Object.values(room.players).forEach((p: PlayerState) => {
+              if (p.teamId === payload.teamId) next.add(p.id);
+            });
+          }
+        }
+        return next;
+      });
+    };
+
     const handleEffectPartyTime = (payload: { durationMs?: number; fromPlayerId?: string }) => {
       startPartyEffect(payload.durationMs ?? 10000);
       if (payload.fromPlayerId) {
@@ -575,6 +617,7 @@ export default function GameRoomPage() {
   socket.on('timer:tick', handleTimerTick);
   socket.on('guess:correct', handleGuessCorrect);
   socket.on('item:used', handleItemUsed);
+  socket.on('teams:revealed', handleTeamsRevealed);
   socket.on('effect:party-time', handleEffectPartyTime);
   socket.on('effect:crt', handleEffectCrt);
 
@@ -619,11 +662,30 @@ export default function GameRoomPage() {
   socket.off('timer:tick', handleTimerTick);
   socket.off('guess:correct', handleGuessCorrect);
   socket.off('item:used', handleItemUsed);
+  socket.off('teams:revealed', handleTeamsRevealed);
   socket.off('effect:party-time', handleEffectPartyTime);
   socket.off('effect:crt', handleEffectCrt);
       hasJoinedRoomRef.current = false;
     };
   }, [clearAuth, clearCanvas, drawPoints, roomId, router, setCurrentRoom, setPlayerId, setRound, user, hydrated, isJoiningRoom, startPartyEffect, startCrtEffect, playerId]);
+
+  // Initialiser les équipes connues: au début, uniquement les membres de ma propre équipe
+  useEffect(() => {
+    if (!currentRoom?.players || !playerId) {
+      setKnownTeamPlayerIds(new Set());
+      return;
+    }
+    const myTeam = currentRoom.players[playerId]?.teamId;
+    if (!myTeam) {
+      setKnownTeamPlayerIds(new Set());
+      return;
+    }
+    const initial = new Set<string>();
+    Object.values(currentRoom.players).forEach((p: PlayerState) => {
+      if (p.teamId === myTeam) initial.add(p.id);
+    });
+    setKnownTeamPlayerIds(initial);
+  }, [currentRoom, playerId]);
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawer) return;
@@ -1166,7 +1228,6 @@ export default function GameRoomPage() {
       >
         {selectedPlayer && (
           <Stack>
-            <Text>Pseudo : {selectedPlayer.name}</Text>
             <Text size="sm" c="dimmed">
               Score actuel : {selectedPlayer.score} pts
             </Text>
@@ -1216,67 +1277,125 @@ export default function GameRoomPage() {
                 const canSelectCrtTarget = Boolean(crtSelection && player.id !== playerId && player.connected);
                 const isSelectable = canSelectPartyTarget || canSelectCrtTarget;
                 return (
-                  <Paper
-                    key={player.id}
-                    bg={altMessageBg}
-                    p="md"
-                    radius="md"
-                    style={{
-                      cursor: isSelectable ? 'pointer' : 'default',
-                      outline: isSelectable
-                        ? (canSelectCrtTarget ? '2px solid var(--mantine-color-blue-5)' : '2px solid var(--mantine-color-pink-5)')
-                        : 'none',
-                      boxShadow: isSelectable
-                        ? (canSelectCrtTarget ? '0 0 0 2px rgba(76, 110, 245, 0.35)' : '0 0 0 2px rgba(255, 120, 203, 0.35)')
-                        : undefined,
-                      transition: 'outline 60ms ease, box-shadow 60ms ease',
-                      opacity: player.connected ? 1 : 0.5
-                    }}
-                    onClick={() => {
-                      if (canSelectPartyTarget) return handlePartyTargetClick(player);
-                      if (canSelectCrtTarget) return handleCrtTargetClick(player);
-                    }}
-                  >
-                    <Stack>
-                      <Group justify="space-between">
+                  <Stack key={player.id} gap="0px" align="center">
+                    <Paper
+                      bg={altMessageBg}
+                      p="xs"
+                      radius="md"
+                      w="100%"
+                      withBorder
+                      style={{
+                        cursor: isSelectable ? 'pointer' : 'default',
+                        outline: isSelectable
+                          ? (canSelectCrtTarget ? '2px solid var(--mantine-color-blue-5)' : '2px solid var(--mantine-color-pink-5)')
+                          : 'none',
+                        boxShadow: isSelectable
+                          ? (canSelectCrtTarget ? '0 0 0 2px rgba(76, 110, 245, 0.35)' : '0 0 0 2px rgba(255, 120, 203, 0.35)')
+                          : '0 0 0 2px rgba(255, 255, 255, 0.35)',
+                        transition: 'outline 60ms ease, box-shadow 60ms ease',
+                        opacity: player.connected ? 1 : 0.5,
+                        zIndex: 5
+                      }}
+                      onClick={() => {
+                        if (canSelectPartyTarget) return handlePartyTargetClick(player);
+                        if (canSelectCrtTarget) return handleCrtTargetClick(player);
+                      }}
+                    >
+                      <Group justify="space-between" style={{ gap: 8 }}>
                         <Group gap={4} align="center">
                           {orderNumber && (
                             <Text size="sm" c="dimmed" fw={500}>{orderNumber}.</Text>
                           )}
-                          <Text
-                            size="sm"
-                            fw={playerId === player.id ? 700 : 500}
-                            style={{
-                              textDecoration:
-                                playerId && player.id !== playerId && currentRoom?.players[playerId]?.teamId && player.teamId && currentRoom?.players[playerId]?.teamId === player.teamId
-                                  ? 'underline'
-                                  : 'none',
-                              cursor: user && player.id !== user.id ? 'pointer' : 'default'
-                            }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handlePlayerClick(player);
-                            }}
-                          >
-                            {player.name}
-                          </Text>
-                          {round?.drawerId === player.id && <IconBrush size={16} style={{ display: "block", transform: "translateY(1px)" }} />}
+                          <Tooltip label={player.name} position="top" withArrow>
+                            <Text
+                              size="sm"
+                              fw={playerId === player.id ? 700 : 500}
+                              style={{
+                                textDecoration:
+                                  playerId && player.id !== playerId && currentRoom?.players[playerId]?.teamId && player.teamId && currentRoom?.players[playerId]?.teamId === player.teamId
+                                    ? 'underline'
+                                    : 'none',
+                                cursor: user && player.id !== user.id ? 'pointer' : 'default',
+                                maxWidth: 130,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                display: 'inline-block'
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePlayerClick(player);
+                              }}
+                            >
+                              {player.name}
+                            </Text>
+                          </Tooltip>
                           {!player.connected && <Text size="xs" c="dimmed">(déconnecté)</Text>}
                         </Group>
-                      </Group>
-                      
-                      <Group justify="space-between">
+
                         <Group gap={4} align="center">
+                          {round?.drawerId === player.id && <IconBrush size={16} style={{ display: "block", transform: "translateY(1px)" }} />}
                           {currentRoom.hostId === player.id && (
                             <Badge size="xs" color="yellow" variant="light" style={{ display: "block", transform: "translateY(0.5px)" }}>Hôte</Badge>
                           )}
                         </Group>
-                        <Badge variant={playerId === player.id ? 'filled' : 'light'} size="sm">
+                      </Group>
+                    </Paper>
+                    <Paper
+                      bg={altMessageBg}
+                      p="6px"
+                      w="90%"
+                      styles={{
+                        root: {
+                          borderTopLeftRadius: 0,
+                          borderTopRightRadius: 0,
+                          borderBottomLeftRadius: "0.5rem",
+                          borderBottomRightRadius: "0.5rem",
+                          paddingTop: 7,
+                          paddingBottom: 6,
+                          paddingLeft: 6,
+                          paddingRight: 6,
+                          zIndex: 1
+                        },
+                      }}
+                    >
+                      <Group justify="space-between">
+                        <Group gap={4} align="center">
+                          {/* Badge d'équipe: T1/T2/... si connu, sinon ? */}
+                          {(() => {
+                            const teamsEnabled = (currentRoom?.teamCount ?? 0) > 1;
+                            if (!teamsEnabled) return null;
+                            const tId = player.teamId;
+                            const idx = tId ? teamIndexById[tId] : undefined;
+                            const isKnown = Boolean(
+                              tId && (
+                                player.id === playerId ||
+                                (viewerTeamId && tId === viewerTeamId) ||
+                                knownTeamPlayerIds.has(player.id)
+                              )
+                            );
+                            if (isKnown && idx) {
+                              const color = teamColors[(idx - 1) % teamColors.length];
+                              return (
+                                <Badge size="sm" variant="filled" color={color} title={`Équipe T${idx}`}>
+                                  T{idx}
+                                </Badge>
+                              );
+                            }
+                            return (
+                              <Badge size="sm" variant="light" color="gray" title="Équipe inconnue">?</Badge>
+                            );
+                          })()}
+                        </Group>
+                        <Group gap={4} align="center">
+                          {/* TODO : Afficher les effets qui ont été donnés à ce joueur avec les icones des effets */}
+                        </Group>
+                        <Badge variant={'light'} size="sm">
                           {player.score} pts
                         </Badge>
                       </Group>
-                    </Stack>
-                  </Paper>
+                    </Paper>
+                  </Stack>
                 );
               })}
           </Stack>
