@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Card, Group, NumberInput, Stack, Text, Title, Alert, Divider, Badge, Flex, Box } from '@mantine/core';
+import { Button, Card, Group, NumberInput, Stack, Text, Title, Alert, Divider, Badge, Flex, Box, Checkbox } from '@mantine/core';
 import { IconInfoCircle, IconCrown, IconCopy, IconCheck } from '@tabler/icons-react';
 
 import { getSocket } from '@/lib/socket';
@@ -16,6 +16,7 @@ export default function LobbySettings({ room }: Props) {
   const playerId = useGameStore((state) => state.playerId);
   // maxPlayers supprimé du panneau lobby (capacité auto par équipes)
   const [roundDuration, setRoundDuration] = useState<number | ''>(room.roundDuration);
+  const [unlimited, setUnlimited] = useState<boolean>(room.roundDuration === 0);
   const [totalRounds, setTotalRounds] = useState<number | ''>(room.totalRounds ?? 3);
   const [teamCount, setTeamCount] = useState<number | ''>(room.teamCount ?? 2);
   const [teamSize, setTeamSize] = useState<number | ''>(room.teamSize ?? 2);
@@ -35,6 +36,7 @@ export default function LobbySettings({ room }: Props) {
     setTotalRounds(room.totalRounds ?? 3);
     setTeamCount(room.teamCount ?? 2);
     setTeamSize(room.teamSize ?? 2);
+    setUnlimited(room.roundDuration === 0);
   }, [room.maxPlayers, room.roundDuration, room.totalRounds, room.teamCount, room.teamSize]);
 
   const isHost = useMemo(() => {
@@ -53,17 +55,20 @@ export default function LobbySettings({ room }: Props) {
   const hasChanges = useMemo(() => {
     return (
       (typeof roundDuration === 'number' && roundDuration !== room.roundDuration) ||
+      (unlimited !== (room.roundDuration === 0)) ||
       (typeof totalRounds === 'number' && totalRounds !== (room.totalRounds ?? 3)) ||
       (typeof teamCount === 'number' && teamCount !== (room.teamCount ?? 2)) ||
       (typeof teamSize === 'number' && teamSize !== (room.teamSize ?? 2))
     );
-  }, [roundDuration, totalRounds, teamCount, teamSize, room.roundDuration, room.totalRounds, room.teamCount, room.teamSize]);
+  }, [roundDuration, totalRounds, teamCount, teamSize, room.roundDuration, room.totalRounds, room.teamCount, room.teamSize, unlimited]);
 
   const handleSave = () => {
     setError(undefined);
     setLoading(true);
-    const payload: any = {};
-    if (typeof roundDuration === 'number') payload.roundDuration = roundDuration;
+  const payload: any = {};
+  // Si mode illimité sélectionné, envoyer 0 explicitement
+  if (unlimited) payload.roundDuration = 0;
+  else if (typeof roundDuration === 'number') payload.roundDuration = roundDuration;
     if (typeof totalRounds === 'number') payload.totalRounds = totalRounds;
     if (typeof teamCount === 'number') payload.teamCount = teamCount;
     if (typeof teamSize === 'number') payload.teamSize = teamSize;
@@ -132,14 +137,17 @@ export default function LobbySettings({ room }: Props) {
           </Alert>
         )}
         <Group grow>
-          <NumberInput
-            label="Durée d'une manche (en s)"
-            min={30}
-            max={240}
-            value={roundDuration}
-            onChange={(v) => setRoundDuration(typeof v === 'number' ? v : '')}
-            disabled={!isHost}
-          />
+          <Flex align="flex-end" gap="md">
+            <NumberInput
+              label="Durée d'une manche (en s)"
+              min={30}
+              max={240}
+              value={roundDuration}
+              onChange={(v) => setRoundDuration(typeof v === 'number' ? v : '')}
+              disabled={!isHost || unlimited}
+            />
+            <Checkbox label="Temps illimité" checked={unlimited} onChange={(e) => setUnlimited(e.currentTarget.checked)} disabled={!isHost} style={{ display: "block", transform: "translateY(-8px)" }} />
+          </Flex>
           <NumberInput
             label="Rounds"
             min={1}

@@ -884,7 +884,7 @@ export default function GameRoomPage() {
     setCurrentRoom(undefined);
     setRound(undefined);
     setIsJoiningRoom(false);
-    stopHurry();
+    stopHurry(); // TODO : faire une fonction qui enelève tous les effets au lieu de faire une fonction par effet
     stopPartyEffect();
     stopCrtEffect();
     router.push('/');
@@ -1148,7 +1148,7 @@ export default function GameRoomPage() {
                 : 'En attente'}
           </Text>
         </div>
-        <Button variant="subtle" onClick={handleLeaveRoom}>
+        <Button variant="light" onClick={handleLeaveRoom}>
           Quitter
         </Button>
       </Group>
@@ -1310,7 +1310,7 @@ export default function GameRoomPage() {
                     fw={700}
                     style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)' }}
                   >
-                    {round ? Math.max(0, Math.round((round.roundEndsAt - Date.now()) / 1000)) : ''}s
+                    {round ? (round.roundEndsAt ? `${Math.max(0, Math.round((round.roundEndsAt - Date.now()) / 1000))}s` : 'Illimité') : ''}
                   </Text>
                 </Box>
                 <Divider my="md" />

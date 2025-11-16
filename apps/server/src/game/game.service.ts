@@ -78,6 +78,10 @@ export class GameService {
       room.maxPlayers = dto.maxPlayers;
     }
     if (typeof dto.roundDuration === 'number') {
+      // Autoriser 0 (illimité) ou une valeur comprise entre 30 et 240
+      if (dto.roundDuration !== 0 && (dto.roundDuration < 30 || dto.roundDuration > 240)) {
+        throw new Error('Durée de manche invalide');
+      }
       room.roundDuration = dto.roundDuration;
     }
     if (typeof dto.totalRounds === 'number') {
@@ -174,6 +178,13 @@ export class GameService {
     if (!def) throw new Error('Item inconnu');
     if (room.status === 'ended') throw new Error('La partie est terminée');
     if (player.score < def.cost) throw new Error('Score insuffisant');
+    
+    // Limite d'inventaire côté serveur: ne pas autoriser plus de 7 items
+    const MAX_ITEMS = 7;
+    if (!player.inventory) player.inventory = [];
+    if (player.inventory.length >= MAX_ITEMS) {
+      throw new Error(`Inventaire plein (max ${MAX_ITEMS})`);
+    }
 
     player.score -= def.cost;
     const item: PlayerItem = {
@@ -276,7 +287,8 @@ export class GameService {
       revealed: word.replace(/./g, '_'),
       drawerId,
       startedAt: Date.now(),
-      roundEndsAt: Date.now() + room.roundDuration * 1000,
+      // Si roundDuration === 0 => mode illimité => ne pas définir roundEndsAt
+      roundEndsAt: room.roundDuration > 0 ? Date.now() + room.roundDuration * 1000 : undefined,
       guessedPlayerIds: [],
       revealedIndices: [],
       totalScore,
@@ -288,8 +300,10 @@ export class GameService {
     room.lastActivityAt = Date.now();
     this.lobby.upsertRoom(room);
 
-    // Démarrer la manche
-    this.startTimer(room.id);
+    // Démarrer la manche (seulement si une durée est définie)
+    if (room.round?.roundEndsAt) {
+      this.startTimer(room.id);
+    }
     // Informer l'utilisation de l'item (sans dévoiler le mot)
     this.emitToRoom(room.id, 'item:used', { itemId: 'improvisation', playerId });
     // Notifier le début de manche
@@ -508,11 +522,13 @@ export class GameService {
       }
       
       // Réduire le timer de 5% du temps restant (arrondi supérieur)
-      const remainingMs = room.round.roundEndsAt - Date.now();
-      if (remainingMs > 0) {
-        const reductionMs = Math.ceil(remainingMs * 0.05);
-        room.round.roundEndsAt -= reductionMs;
-        this.logger.log(`Timer reduced by ${reductionMs}ms (5% of ${remainingMs}ms remaining)`);
+      if (room.round.roundEndsAt != null) {
+        const remainingMs = room.round.roundEndsAt - Date.now();
+        if (remainingMs > 0) {
+          const reductionMs = Math.ceil(remainingMs * 0.05);
+          room.round.roundEndsAt -= reductionMs;
+          this.logger.log(`Timer reduced by ${reductionMs}ms (5% of ${remainingMs}ms remaining)`);
+        }
       }
       
       this.lobby.upsertRoom(room);
@@ -621,7 +637,7 @@ export class GameService {
       revealed: word.replace(/./g, '_'),
       drawerId,
       startedAt: Date.now(),
-      roundEndsAt: Date.now() + room.roundDuration * 1000,
+      roundEndsAt: room.roundDuration > 0 ? Date.now() + room.roundDuration * 1000 : undefined,
       guessedPlayerIds: [],
       revealedIndices: [],
       totalScore,
@@ -633,8 +649,10 @@ export class GameService {
     room.lastActivityAt = Date.now();
     this.lobby.upsertRoom(room);
 
-    // Lancer timer de round
-    this.startTimer(room.id);
+    // Lancer timer de round uniquement si la durée est définie (non-illimitée)
+    if (room.round?.roundEndsAt) {
+      this.startTimer(room.id);
+    }
     // Notifier tout le monde que la manche démarre (sans dévoiler le mot)
     this.emitToRoom(room.id, 'round:started', {
       drawerId: round.drawerId,
@@ -651,6 +669,9 @@ export class GameService {
 
   private startTimer(roomId: string) {
     this.clearTimer(roomId);
+    const room = this.lobby.getRoom(roomId);
+    // Ne pas démarrer de timer si la manche n'a pas de roundEndsAt (mode illimité)
+    if (!room || !room.round || room.round.roundEndsAt == null) return;
     const interval = setInterval(() => this.handleTimerTick(roomId), 1000);
     this.timers.set(roomId, interval);
   }
@@ -664,6 +685,7 @@ export class GameService {
   private handleTimerTick(roomId: string) {
     const room = this.lobby.getRoom(roomId);
     if (!room || !room.round) return;
+    if (room.round.roundEndsAt == null) return; // mode illimité -> aucun tick attendu
     const remainingMs = room.round.roundEndsAt - Date.now();
     const remaining = Math.max(0, Math.ceil(remainingMs / 1000));
     
@@ -687,6 +709,8 @@ export class GameService {
    */
   private updateRevealedLetters(room: RoomState): string | null {
     if (!room.round || !room.round.revealedIndices) return null;
+    // Si la manche est en mode illimité (pas de roundEndsAt), ne pas dévoiler automatiquement
+    if (room.round.roundEndsAt == null) return null;
     
     const word = room.round.word;
     const wordLength = word.length;

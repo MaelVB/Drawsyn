@@ -39,9 +39,13 @@ body {
   10% {
     opacity: 1;
   }
+  90% {
+    opacity: 1;
+  }
   100% {
     transform: translate3d(var(--confetti-drift, 0vw), 120vh, 0) rotate(540deg);
-    opacity: 0;
+    /* faiblir seulement à la toute fin pour garder une opacité forte pendant la majeure partie de l'effet */
+    opacity: 0.05;
   }
 }
 
@@ -53,9 +57,12 @@ body {
   20% {
     opacity: 1;
   }
+  95% {
+    opacity: 1;
+  }
   100% {
     transform: translate3d(var(--burst-x, 40vw), var(--burst-y, 60vh), 0) rotate(720deg);
-    opacity: 0;
+    opacity: 0.05;
   }
 }
 
@@ -67,9 +74,12 @@ body {
   20% {
     opacity: 1;
   }
+  95% {
+    opacity: 1;
+  }
   100% {
     transform: translate3d(calc(-1 * var(--burst-x, 40vw)), var(--burst-y, 60vh), 0) rotate(-720deg);
-    opacity: 0;
+    opacity: 0.05;
   }
 }
 

@@ -1,6 +1,7 @@
-'use client';
+ 'use client';
 
-import React, { CSSProperties, useEffect, useMemo } from 'react';
+import React, { CSSProperties, useEffect, useRef } from 'react';
+import confetti from 'canvas-confetti';
 import { useEffectsStore } from '@/stores/effects-store';
 
 type ConfettiStyle = CSSProperties & Record<string, string | number>;
@@ -46,19 +47,153 @@ export default function EffectsOverlay() {
     stopPartyEffect: s.stopPartyEffect,
   }));
 
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const confettiIntervalRef = useRef<number | null>(null);
+  const confettiTimerRef = useRef<number | null>(null);
+  const snowIntervalRef = useRef<number | null>(null);
+
   useEffect(() => {
     if (!partyActive || !partyExpiresAt) return;
-    const timeout = window.setTimeout(() => {
-      stopPartyEffect();
-    }, Math.max(0, partyExpiresAt - Date.now()));
-    return () => window.clearTimeout(timeout);
-  }, [partyActive, partyExpiresAt, stopPartyEffect]);
+    const remaining = Math.max(0, partyExpiresAt - Date.now());
 
-  const confettiSets = useMemo<ConfettiSets | null>(() => {
-    if (!partyActive) return null;
-    const seed = partySeed || Math.random();
-    return buildConfettiSets(seed);
-  }, [partyActive, partySeed]);
+    // create a canvas-confetti instance attached to our canvas
+    const myConfetti = confetti.create(canvasRef.current ?? undefined, {
+      resize: true,
+      useWorker: true
+    });
+
+    // School pride palette (vivid)
+    const prideColors = ['#a864fd', '#29cdff', '#78ff44', '#ff718d', '#fdff6a'];
+
+    const start = Date.now();
+
+    // Helper: continuous burst from a side origin
+    const fireSide = (side: 'left' | 'right') => {
+      const x = side === 'left' ? 0 : 1;
+      // multiple smaller shots to create a steady stream
+      myConfetti({
+        particleCount: 12,
+        angle: side === 'left' ? 20 : 160,
+        spread: 40,
+        startVelocity: 45,
+        ticks: 360,
+        gravity: 0.6,
+        decay: 0.92,
+        origin: { x, y: 0.35 },
+        scalar: 1.1,
+        colors: prideColors
+      });
+
+      myConfetti({
+        particleCount: 8,
+        angle: side === 'left' ? 10 : 170,
+        spread: 20,
+        startVelocity: 30,
+        ticks: 340,
+        gravity: 0.5,
+        decay: 0.94,
+        origin: { x, y: 0.25 },
+        scalar: 0.9,
+        colors: prideColors
+      });
+    };
+
+    // initial simultaneous bursts
+    fireSide('left');
+    fireSide('right');
+
+    // interval: fire both sides at a steady cadence for the remaining duration
+    const cadenceMs = 180; // cadence between shots; adjust for density
+    confettiIntervalRef.current = window.setInterval(() => {
+      fireSide('left');
+      fireSide('right');
+      // stop early if time passed
+      if (Date.now() - start > remaining) {
+        if (confettiIntervalRef.current) {
+          window.clearInterval(confettiIntervalRef.current);
+          confettiIntervalRef.current = null;
+        }
+      }
+    }, cadenceMs);
+
+    // Snow effect: gentle, white/blue flakes falling continuously
+    const fireSnow = () => {
+      // multiple tiny groups across the top to simulate snowfall
+      for (let i = 0; i < 6; i++) {
+        myConfetti({
+          // flocons plus visibles et variés
+          particleCount: 4 + Math.floor(Math.random() * 6),
+          // angle 270 = vers le bas (canvas-confetti: 90 = haut, 270 = bas)
+          angle: 270 + (Math.random() - 0.5) * 20,
+          // dispersion latérale pour couvrir l'écran
+          spread: 40 + Math.random() * 30,
+          // vitesse initiale faible vers le bas (douce descente)
+          startVelocity: 2 + Math.random() * 2,
+          ticks: 420, // durer longtemps à l'écran
+          gravity: 0.18 + Math.random() * 0.07, // accélération douce
+          decay: 0.996,
+          drift: (Math.random() - 0.5) * 0.8, // léger mouvement horizontal
+          // démarrer juste dans le viewport
+          origin: { x: Math.random(), y: -0.6 },
+          // taille modérée pour ressembler à des flocons
+          scalar: 0.7 + Math.random() * 0.7,
+          colors: ['#FFD700', '#FFED00', '#E6C619', '#FFFFFF'],
+          shapes: ['circle']
+        });
+      }
+    };
+
+    const snowCadence = 160; // ms between snow shots
+    // fire an immediate snow burst so it's visible right away
+    fireSnow();
+    snowIntervalRef.current = window.setInterval(() => {
+      fireSnow();
+      if (Date.now() - start > remaining) {
+        if (snowIntervalRef.current) {
+          window.clearInterval(snowIntervalRef.current);
+          snowIntervalRef.current = null;
+        }
+      }
+    }, snowCadence);
+
+    // ensure we stop the effect and cleanup at partyExpiresAt
+    confettiTimerRef.current = window.setTimeout(() => {
+      if (confettiIntervalRef.current) {
+        window.clearInterval(confettiIntervalRef.current);
+        confettiIntervalRef.current = null;
+      }
+      if (snowIntervalRef.current) {
+        window.clearInterval(snowIntervalRef.current);
+        snowIntervalRef.current = null;
+      }
+      // final synchronized big burst on both sides
+      myConfetti({ particleCount: 620, ticks: 420, spread: 100, startVelocity: 60, origin: { x: 0.06, y: 0.35 }, colors: prideColors });
+      myConfetti({ particleCount: 620, ticks: 420, spread: 100, startVelocity: 60, origin: { x: 0.94, y: 0.35 }, colors: prideColors });
+      
+      myConfetti({ particleCount: 620, ticks: 420, spread: 100, startVelocity: 60, origin: { x: 0.06, y: 0.55 }, colors: prideColors });
+      myConfetti({ particleCount: 620, ticks: 420, spread: 100, startVelocity: 60, origin: { x: 0.94, y: 0.55 }, colors: prideColors });
+      // small farewell snowfall
+      for (let i = 0; i < 8; i++) {
+        setTimeout(() => fireSnow(), i * 120);
+      }
+      stopPartyEffect();
+    }, remaining);
+
+    return () => {
+      if (confettiIntervalRef.current) {
+        window.clearInterval(confettiIntervalRef.current);
+        confettiIntervalRef.current = null;
+      }
+      if (snowIntervalRef.current) {
+        window.clearInterval(snowIntervalRef.current);
+        snowIntervalRef.current = null;
+      }
+      if (confettiTimerRef.current) {
+        window.clearTimeout(confettiTimerRef.current);
+        confettiTimerRef.current = null;
+      }
+    };
+  }, [partyActive, partyExpiresAt, stopPartyEffect, partySeed]);
 
   return (
     <div
@@ -101,94 +236,39 @@ export default function EffectsOverlay() {
         </>
       )}
 
-      {/* Jour de fête confetti */}
-      {partyActive && confettiSets && (
-        <>
-          <div style={{ position: 'absolute', inset: 0 }}>
-            {confettiSets.rain.map((piece) => {
-              const style: ConfettiStyle = {
-                position: 'absolute',
-                top: '-12vh',
-                left: `${piece.left}%`,
-                width: `${piece.size}px`,
-                height: `${Math.max(6, piece.size * 0.6)}px`,
-                borderRadius: '2px',
-                background: `linear-gradient(180deg, hsl(${piece.hue}, 95%, 62%) 0%, hsl(${piece.hue}, 95%, 48%) 100%)`,
-                transform: 'translateZ(0)',
-                animation: `ds-confetti-fall ${piece.duration}s linear ${piece.delay}s forwards`,
-                opacity: 0,
-                '--confetti-drift': `${piece.drift}vw`,
-              };
-              return <span key={piece.id} data-ds-confetti style={style} />;
-            })}
-          </div>
-
-          <div style={{ position: 'absolute', top: '8vh', left: 0, width: '25vw', height: '70vh' }}>
-            {confettiSets.left.map((piece) => {
-              const style: ConfettiStyle = {
-                position: 'absolute',
-                left: 0,
-                bottom: 0,
-                width: `${piece.size}px`,
-                height: `${Math.max(6, piece.size * 0.6)}px`,
-                borderRadius: '2px',
-                background: `linear-gradient(135deg, hsl(${piece.hue}, 95%, 62%) 0%, hsl(${piece.hue}, 95%, 47%) 100%)`,
-                transform: 'translateZ(0)',
-                animation: `ds-confetti-burst-left ${piece.duration}s cubic-bezier(0.25, 0.1, 0.25, 1) ${piece.delay}s forwards`,
-                opacity: 0,
-                '--burst-x': `${piece.spreadX}vw`,
-                '--burst-y': `${piece.spreadY}vh`,
-              };
-              return <span key={piece.id} data-ds-confetti style={style} />;
-            })}
-          </div>
-
-          <div style={{ position: 'absolute', top: '8vh', right: 0, width: '25vw', height: '70vh' }}>
-            {confettiSets.right.map((piece) => {
-              const style: ConfettiStyle = {
-                position: 'absolute',
-                right: 0,
-                bottom: 0,
-                width: `${piece.size}px`,
-                height: `${Math.max(6, piece.size * 0.6)}px`,
-                borderRadius: '2px',
-                background: `linear-gradient(225deg, hsl(${piece.hue}, 95%, 62%) 0%, hsl(${piece.hue}, 95%, 47%) 100%)`,
-                transform: 'translateZ(0)',
-                animation: `ds-confetti-burst-right ${piece.duration}s cubic-bezier(0.25, 0.1, 0.25, 1) ${piece.delay}s forwards`,
-                opacity: 0,
-                '--burst-x': `${piece.spreadX}vw`,
-                '--burst-y': `${piece.spreadY}vh`,
-              };
-              return <span key={piece.id} data-ds-confetti style={style} />;
-            })}
-          </div>
-        </>
-      )}
+      {/* Canvas pour confettis (utilise canvas-confetti pour realistic / school-pride) */}
+      <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }} />
     </div>
   );
 }
 
 function buildConfettiSets(seed: number): ConfettiSets {
   const random = mulberry32(Math.floor(seed * 1_000_000));
-  const rain: ConfettiPiece[] = Array.from({ length: 55 }, (_, index) => ({
+  // Augmenter fortement la densité et prolonger les durées pour rendre l'écran difficilement lisible
+  const rain: ConfettiPiece[] = Array.from({ length: 180 }, (_, index) => ({
     id: `rain-${index}`,
     left: random() * 100,
-    delay: random() * 0.6,
-    duration: 3.2 + random() * 1.8,
+    // lancer presque simultanément (petit jitter)
+    delay: random() * 0.25,
+    // longue durée pour couvrir ~10s
+    duration: 8 + random() * 3,
     hue: Math.floor(random() * 360),
-    drift: random() * 6 - 3,
-    size: 10 + random() * 8,
+    // plus de dérive horizontale
+    drift: random() * 10 - 5,
+    // tailles variées
+    size: 8 + random() * 12,
   }));
 
   const buildBurst = (prefix: string): ConfettiBurstPiece[] =>
-    Array.from({ length: 24 }, (_, index) => ({
+    // augmenter le nombre de particules côté et prolonger la durée
+    Array.from({ length: 60 }, (_, index) => ({
       id: `${prefix}-${index}`,
-      delay: random() * 0.5,
-      duration: 2.4 + random() * 1.2,
+      delay: random() * 0.25,
+      duration: 7 + random() * 3,
       hue: Math.floor(random() * 360),
-      spreadX: 18 + random() * 24,
-      spreadY: -10 + random() * 70,
-      size: 9 + random() * 10,
+      spreadX: 24 + random() * 36,
+      spreadY: -10 + random() * 100,
+      size: 10 + random() * 14,
     }));
 
   return {

@@ -257,7 +257,7 @@ export default function AccountPage() {
                   onChange={(e) => setEmailToConnect(e.currentTarget.value)}
                 />
                 <Button onClick={handleConnectByEmail} loading={friendsSaving} variant="light">
-                  Se connecter
+                  Envoyer demande de connexion
                 </Button>
                 <Text size="sm" c="dimmed">
                   Les demandes privées ne génèrent pas de notification. Les deux personnes doivent

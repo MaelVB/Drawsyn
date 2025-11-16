@@ -9,7 +9,7 @@ export class UpdateRoomSettingsDto {
 
   @IsOptional()
   @IsInt()
-  @Min(30)
+  @Min(0)
   @Max(240)
   roundDuration?: number;
 

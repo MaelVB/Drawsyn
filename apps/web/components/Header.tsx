@@ -21,7 +21,7 @@ export default function Header() {
         <Text fw={700}>Drawsyn</Text>
       </Link>
       {user && (
-        <Button component={Link} href="/account">
+        <Button component={Link} href="/account" variant="light">
           Mon compte
         </Button>
       )}

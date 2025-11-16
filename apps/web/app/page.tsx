@@ -340,8 +340,7 @@ export default function LobbyPage() {
                 <div>
                   <Text fw={600}>{room.name}</Text>
                   <Text c="dimmed" fz="sm">
-                    {Object.keys(room.players).length} / {room.maxPlayers} joueurs · {room.roundDuration}
-                    s par manche
+                    {Object.keys(room.players).length} / {room.maxPlayers} joueurs · {room.roundDuration === 0 ? 'Illimité' : `${room.roundDuration} s`} par manche
                   </Text>
                 </div>
                 <Button

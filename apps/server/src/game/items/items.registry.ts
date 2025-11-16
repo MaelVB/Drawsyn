@@ -5,7 +5,7 @@ export const ITEMS: Record<ItemId, GameItemDef> = {
     id: 'party_time',
     name: 'Jour de fête',
     description: 'Envoie des confettis partout sur l\'écran d\'un joueur pendant 10s.',
-    cost: 25
+    cost: 1
   },
   early_bird: {
     id: 'early_bird',

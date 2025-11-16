@@ -32,7 +32,7 @@ export interface RoomState {
   teamSize?: number;
   round?: {
     drawerId: string;
-    roundEndsAt: number;
+    roundEndsAt?: number;
     revealed: string;
     guessedPlayerIds?: string[];
   };
@@ -42,7 +42,7 @@ export interface RoomState {
 
 export interface RoundState {
   drawerId: string;
-  roundEndsAt: number;
+  roundEndsAt?: number;
   revealed: string;
   guessedPlayerIds?: string[];
 }
@@ -62,6 +62,7 @@ interface GameStore {
   updateRoundRevealed: (revealed: string) => void;
   setItemsCatalog: (items: GameItemDef[]) => void;
   setPrimaryNotification: (notification?: PrimaryNotification | null) => void;
+  addItemToPlayer: (playerId: string, item: PlayerItem) => boolean;
 }
 
 export type ItemId =
@@ -136,5 +137,38 @@ export const useGameStore = create<GameStore>((set) => ({
   updateRoundRevealed: (revealed) =>
     set((state) => (state.round ? { round: { ...state.round, revealed } } : {})),
   setItemsCatalog: (items) => set({ itemsCatalog: items }),
-  setPrimaryNotification: (notification) => set({ primaryNotification: notification ?? null })
+  setPrimaryNotification: (notification) => set({ primaryNotification: notification ?? null }),
+  addItemToPlayer: (playerId, item) => {
+    let added = false;
+    set((state) => {
+      const room = state.currentRoom;
+      if (!room) return {};
+      const player = room.players[playerId];
+      if (!player) return {};
+
+      const inventory = player.inventory ?? [];
+      const MAX_ITEMS = 7;
+      if (inventory.length >= MAX_ITEMS) {
+        // ne pas ajouter, montrer une notification
+        added = false;
+        return {
+          primaryNotification: {
+            id: 'inventory-full',
+            message: `Vous ne pouvez pas avoir plus de ${MAX_ITEMS} items.`,
+            variant: 'warning',
+            durationMs: 3000,
+            timestamp: Date.now()
+          }
+        };
+      }
+
+      const newInventory = [...inventory, item];
+      const newPlayer: PlayerState = { ...player, inventory: newInventory };
+      const newPlayers = { ...room.players, [playerId]: newPlayer };
+      const newRoom: RoomState = { ...room, players: newPlayers };
+      added = true;
+      return { currentRoom: newRoom };
+    });
+    return added;
+  }
 }));

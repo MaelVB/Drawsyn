@@ -15,7 +15,7 @@ export interface PlayerState {
 export interface RoundState {
   word: string;
   revealed: string;
-  roundEndsAt: number;
+  roundEndsAt?: number;
   drawerId: string;
   startedAt: number;
   // Index séquentiel du tour (chaque dessin / passage d'un joueur) pour associer le dessin

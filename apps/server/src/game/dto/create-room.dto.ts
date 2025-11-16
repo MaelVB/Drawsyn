@@ -11,7 +11,7 @@ export class CreateRoomDto {
   maxPlayers?: number; // Désormais optionnel: calculé via équipes si teamCount & teamSize sont définis
 
   @IsInt()
-  @Min(30)
+  @Min(0)
   @Max(240)
   roundDuration = 90;
 

@@ -20,7 +20,7 @@ import {
   IconPaletteOff,
   IconStereoGlasses,
   IconBadgeAd,
-  IconDiamonds,
+  IconDeviceGamepad,
   IconPhotoSquareRounded,
   IconMedicineSyrup
 } from '@tabler/icons-react';
@@ -63,7 +63,7 @@ function getItemIcon(itemId: string, size: number = 24) {
     case 'ad_break':
       return <IconBadgeAd size={size} />;
     case 'minigame':
-      return <IconDiamonds size={size} />;
+      return <IconDeviceGamepad size={size} />;
     case 'amnesia':
       return <IconBrain size={size} />;
     case 'recent_memory':
@@ -95,7 +95,7 @@ export default function InventoryBar({
   onCancelCRT
 }: InventoryBarProps) {
   // isCompact = mode permanent (true = compact, false = ouvert)
-  const [isCompact, setIsCompact] = useState(true);
+  const [isCompact, setIsCompact] = useState(false);
   // isHovered = déplié temporairement au survol
   const [isHovered, setIsHovered] = useState(false);
   // Modal de la boutique
@@ -143,6 +143,9 @@ export default function InventoryBar({
   const shouldShowFull = !isCompact || isHovered;
 
   const buyDisabled = (cost: number) => score < cost;
+
+  const MAX_ITEMS = 7;
+  const isInventoryFull = inventory.length >= MAX_ITEMS;
 
   const canUseItem = (item: PlayerItem) => {
     switch (item.itemId) {
@@ -248,7 +251,19 @@ export default function InventoryBar({
                 withArrow
               >
                 <UnstyledButton
-                  onClick={() => !buyDisabled(item.cost) && handleBuy(item.id)}
+                  onClick={() => {
+                    if (isInventoryFull) {
+                      notifications.show({
+                        title: 'Inventaire plein',
+                        message: `Vous ne pouvez pas avoir plus de ${MAX_ITEMS} items.`,
+                        color: 'yellow',
+                        position: 'bottom-right',
+                        autoClose: 3000
+                      });
+                      return;
+                    }
+                    if (!buyDisabled(item.cost)) handleBuy(item.id);
+                  }}
                   style={{
                     width: 60,
                     height: 60,
@@ -259,12 +274,12 @@ export default function InventoryBar({
                     alignItems: 'center',
                     justifyContent: 'center',
                     transition: 'all 0.2s',
-                    cursor: buyDisabled(item.cost) ? 'not-allowed' : 'pointer',
-                    opacity: buyDisabled(item.cost) ? 0.5 : 1,
+                    cursor: buyDisabled(item.cost) || isInventoryFull ? 'not-allowed' : 'pointer',
+                    opacity: buyDisabled(item.cost) || isInventoryFull ? 0.5 : 1,
                     position: 'relative'
                   }}
                   onMouseEnter={(e) => {
-                    if (!buyDisabled(item.cost)) {
+                    if (!buyDisabled(item.cost) && !isInventoryFull) {
                       e.currentTarget.style.borderColor = 'var(--mantine-color-blue-6)';
                     }
                   }}
