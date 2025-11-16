@@ -5,6 +5,8 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from './auth/auth.module';
 import { RedisModule } from './common/redis/redis.module';
 import { GameModule } from './game/game.module';
+import { FriendsModule } from './friends/friends.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -19,7 +21,9 @@ import { GameModule } from './game/game.module';
       optional: process.env.NODE_ENV !== 'production'
     }),
     AuthModule,
-    GameModule
+    GameModule,
+    UsersModule,
+    FriendsModule
   ]
 })
 export class AppModule {}

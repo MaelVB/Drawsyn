@@ -9,6 +9,7 @@ export interface PlayerState {
   isDrawing: boolean;
   connected: boolean;
   inventory?: PlayerItem[];
+  teamId?: string;
 }
 
 export interface RoomState {
@@ -26,6 +27,9 @@ export interface RoomState {
   totalPlayers?: number;
   drawerOrder?: string[];
   currentDrawerIndex?: number;
+  // Équipes (optionnel)
+  teamCount?: number;
+  teamSize?: number;
   round?: {
     drawerId: string;
     roundEndsAt: number;

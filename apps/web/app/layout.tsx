@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { ColorSchemeScript } from '@mantine/core';
 import { Providers } from '@/components/providers';
+import Header from '@/components/Header';
 
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
@@ -19,7 +20,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ColorSchemeScript defaultColorScheme="dark" />
       </head>
       <body>
-        <Providers>{children}</Providers>
+        <Providers>
+          <Header />
+          {children}
+        </Providers>
         <EffectsOverlay />
       </body>
     </html>

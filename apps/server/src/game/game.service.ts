@@ -35,16 +35,26 @@ export class GameService {
   constructor(private readonly lobby: LobbyService, @InjectModel(Game.name) private readonly gameModel: Model<Game>) {}
 
   listRooms(): RoomState[] {
-    return this.lobby.listRooms();
+    // Ne renvoyer que les rooms publiques
+    return this.lobby.listRooms().filter((r) => !r.isPrivate);
   }
 
   createRoom(dto: CreateRoomDto, hostId: string): RoomState {
+    // Déterminer la capacité au plus tôt si les équipes sont fournies
+    let computedMax = dto.maxPlayers;
+    if (dto.teamCount && dto.teamSize) {
+      computedMax = dto.teamCount * dto.teamSize;
+    }
+    const fallbackMax = computedMax ?? 24; // valeur par défaut large
     return this.lobby.createRoom({
       name: dto.name,
-      maxPlayers: dto.maxPlayers,
+      maxPlayers: fallbackMax,
       roundDuration: dto.roundDuration,
       totalRounds: dto.totalRounds,
-      hostId
+      hostId,
+      teamCount: dto.teamCount,
+      teamSize: dto.teamSize,
+      isPrivate: dto.isPrivate ?? false
     });
   }
 
@@ -72,6 +82,25 @@ export class GameService {
     }
     if (typeof dto.totalRounds === 'number') {
       room.totalRounds = dto.totalRounds;
+    }
+    // Équipes
+    if (typeof dto.teamCount === 'number') {
+      room.teamCount = dto.teamCount;
+    }
+    if (typeof dto.teamSize === 'number') {
+      room.teamSize = dto.teamSize;
+    }
+    // Validation simple: si les équipes sont activées, il faut au moins 2 équipes
+    if (room.teamCount != null && room.teamCount < 2) {
+      throw new Error('Au moins 2 équipes sont requises');
+    }
+    if (room.teamCount != null && room.teamSize != null) {
+      const capacity = room.teamCount * room.teamSize;
+      if (capacity < 2) {
+        throw new Error('Configuration des équipes invalide');
+      }
+      // Recalculer automatiquement la capacité d'accueil maximale
+      room.maxPlayers = capacity;
     }
     room.lastActivityAt = Date.now();
     this.lobby.upsertRoom(room);
@@ -888,6 +917,60 @@ export class GameService {
     if (room.status !== 'lobby') {
       return room.round; // Déjà en cours
     }
+    // Si le mode équipe est activé, assigner les joueurs aux équipes aléatoirement
+    if (room.teamCount && room.teamCount >= 2) {
+      const connected = Object.values(room.players).filter(p => p.connected);
+      const teamIds = Array.from({ length: room.teamCount }, (_, i) => `team-${i + 1}`);
+      const capacity = room.teamSize ? room.teamCount * room.teamSize : undefined;
+
+      if (capacity != null && connected.length > capacity) {
+        this.logger.warn(`startGame: Not enough team slots (${capacity}) for ${connected.length} connected players`);
+        throw new Error('Pas assez de places en équipe pour tous les joueurs connectés');
+      }
+      if (connected.length < teamIds.length) {
+        this.logger.warn(`startGame: Not enough players (${connected.length}) to have at least one per team (${teamIds.length})`);
+        throw new Error('Pas assez de joueurs pour avoir au moins un joueur par équipe');
+      }
+
+      // Shuffle les joueurs connectés
+      const shuffled = [...connected].sort(() => Math.random() - 0.5);
+      // Nettoyer anciennes affectations
+      Object.values(room.players).forEach(p => { p.teamId = undefined; });
+      const counts = Object.fromEntries(teamIds.map(id => [id, 0] as const)) as Record<string, number>;
+
+      // 1) Garantir au moins un joueur par équipe
+      for (let i = 0; i < teamIds.length; i++) {
+        const player = shuffled[i];
+        const teamId = teamIds[i];
+        player.teamId = teamId;
+        counts[teamId]++;
+      }
+
+      // 2) Répartir le reste des joueurs équitablement en respectant la taille max
+      for (let i = teamIds.length; i < shuffled.length; i++) {
+        const player = shuffled[i];
+        // Choisir l'équipe la moins remplie qui n'est pas pleine
+        const candidate = teamIds
+          .filter(tid => room.teamSize == null || counts[tid] < room.teamSize)
+          .reduce((best, tid) => (best == null || counts[tid] < counts[best] ? tid : best), undefined as string | undefined);
+
+        if (!candidate) {
+          // Toutes les équipes sont pleines selon teamSize (ne devrait pas arriver car on a vérifié capacity)
+          const fallback = teamIds.reduce((a, b) => (counts[a] <= counts[b] ? a : b));
+          player.teamId = fallback;
+          counts[fallback]++;
+        } else {
+          player.teamId = candidate;
+          counts[candidate]++;
+        }
+      }
+
+      this.logger.log(`Teams assigned: ${teamIds.map(id => `${id}=${counts[id]}`).join(', ')}`);
+    } else {
+      // Pas de mode équipes: nettoyer d'éventuelles anciennes affectations
+      Object.values(room.players).forEach(p => { p.teamId = undefined; });
+    }
+
     // Initialiser round global
     room.currentRound = 1;
     room.currentDrawerIndex = -1; // pour démarrer sur dernier joueur

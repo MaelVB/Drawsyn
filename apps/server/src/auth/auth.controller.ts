@@ -1,6 +1,8 @@
-import { Body, Controller, Get, Headers, Post, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, Get, Post, UnauthorizedException, UseGuards } from '@nestjs/common';
 
 import { AuthenticatedUser, AuthResponse, AuthService } from './auth.service';
+import { AuthGuard } from './auth.guard';
+import { CurrentUser } from './decorators/current-user.decorator';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 
@@ -19,14 +21,8 @@ export class AuthController {
   }
 
   @Get('me')
-  async me(@Headers('authorization') authorization?: string): Promise<AuthenticatedUser> {
-    const token = authorization?.replace('Bearer ', '');
-    const user = await this.auth.verifyToken(token);
-    
-    if (!user) {
-      throw new UnauthorizedException('Token invalide ou expiré');
-    }
-    
+  @UseGuards(AuthGuard)
+  async me(@CurrentUser() user: AuthenticatedUser): Promise<AuthenticatedUser> {
     return user;
   }
 }

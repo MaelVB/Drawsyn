@@ -11,6 +11,22 @@ export interface ApiUser {
   id: string;
   pseudo: string;
   email: string;
+  twitchUrl?: string | null;
+  allowPublicFriendRequests?: boolean;
+}
+
+export interface ApiFriendRelation {
+  userId: string;
+  pseudo: string;
+  email: string;
+  status: 'pending' | 'accepted';
+  type: 'private-email' | 'public';
+  direction?: 'incoming' | 'outgoing';
+  presence?: {
+    status: 'disconnected' | 'lobby' | 'running';
+    roomId?: string;
+    roomName?: string;
+  } | null;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3333';
@@ -57,4 +73,52 @@ export function login(identifier: string, password: string) {
 
 export function verifyToken(token: string) {
   return request<ApiUser>('/auth/me', { method: 'GET', token });
+}
+
+export function getCurrentUser(token: string) {
+  return request<ApiUser>('/users/me', { method: 'GET', token });
+}
+
+export function updateCurrentUser(
+  token: string,
+  payload: { pseudo?: string; twitchUrl?: string | null; allowPublicFriendRequests?: boolean }
+) {
+  // If twitchUrl is empty string, send null to clear
+  const body: Record<string, unknown> = {};
+  if (typeof payload.pseudo === 'string') body.pseudo = payload.pseudo;
+  if (payload.twitchUrl === null) body.twitchUrl = null;
+  else if (typeof payload.twitchUrl === 'string') body.twitchUrl = payload.twitchUrl;
+  if (typeof payload.allowPublicFriendRequests === 'boolean') {
+    body.allowPublicFriendRequests = payload.allowPublicFriendRequests;
+  }
+  return request<ApiUser>('/users/me', { method: 'PUT', body, token });
+}
+
+export function getFriends(token: string) {
+  return request<ApiFriendRelation[]>('/friends', { method: 'GET', token });
+}
+
+export function connectFriendByEmail(token: string, email: string) {
+  return request<{ status: 'pending' | 'accepted'; already: boolean }>(
+    '/friends/connect-by-email',
+    { method: 'POST', token, body: { email } }
+  );
+}
+
+export function sendPublicFriendRequest(token: string, targetUserId: string) {
+  return request<{ status: 'pending' | 'accepted'; already: boolean }>(
+    '/friends/send-public',
+    { method: 'POST', token, body: { targetUserId } }
+  );
+}
+
+export function confirmPublicFriendRequest(token: string, requesterUserId: string) {
+  return request<{ status: 'accepted' }>(
+    '/friends/confirm-public',
+    { method: 'POST', token, body: { requesterUserId } }
+  );
+}
+
+export function removeFriend(token: string, otherUserId: string) {
+  return request<{ removed: boolean }>(`/friends/${otherUserId}`, { method: 'DELETE', token });
 }

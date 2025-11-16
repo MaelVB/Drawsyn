@@ -19,5 +19,7 @@ import { CleanupService } from './cleanup.service';
   ],
   controllers: [GameController],
   providers: [GameGateway, GameService, LobbyService, CleanupService]
+  ,
+  exports: [LobbyService]
 })
 export class GameModule {}

@@ -11,6 +11,7 @@ import {
   NumberInput,
   PasswordInput,
   Stack,
+  Switch,
   Text,
   TextInput,
   Title
@@ -37,8 +38,11 @@ export default function LobbyPage() {
     setRooms: state.setRooms
   }));
   const [roomName, setRoomName] = useState('Salon détendu');
-  const [maxPlayers, setMaxPlayers] = useState<number | ''>(6);
-  const [roundDuration, setRoundDuration] = useState<number | ''>(90);
+  // maxPlayers supprimé: capacité calculée plus tard via équipes (teamCount * teamSize)
+  // Création: remplacer la durée par équipes + privé/public
+  const [teamCount, setTeamCount] = useState<number | ''>(2);
+  const [teamSize, setTeamSize] = useState<number | ''>(2);
+  const [isPrivate, setIsPrivate] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [pseudo, setPseudo] = useState('');
   const [email, setEmail] = useState('');
@@ -120,8 +124,8 @@ export default function LobbyPage() {
   }, [setRooms, token]);
 
   const canCreate = useMemo(
-    () => Boolean(roomName.trim()) && !!maxPlayers && !!roundDuration && Boolean(user),
-    [roomName, maxPlayers, roundDuration, user]
+    () => Boolean(roomName.trim()) && !!teamCount && !!teamSize && Boolean(user),
+    [roomName, teamCount, teamSize, user]
   );
 
   const handleCreateRoom = () => {
@@ -133,8 +137,9 @@ export default function LobbyPage() {
     const socket = getSocket();
     socket.emit('room:create', {
       name: roomName,
-      maxPlayers,
-      roundDuration
+      teamCount,
+      teamSize,
+      isPrivate
     });
   };
 
@@ -276,19 +281,27 @@ export default function LobbyPage() {
             />
             <Group grow>
               <NumberInput
-                label="Joueurs maximum"
+                label="Nombre d'équipes"
                 min={2}
-                max={12}
-                value={maxPlayers}
-                onChange={(v) => setMaxPlayers(typeof v === 'number' ? v : '')}
+                max={6}
+                value={teamCount}
+                onChange={(v) => setTeamCount(typeof v === 'number' ? v : '')}
                 disabled={!user}
               />
               <NumberInput
-                label="Durée d'une manche (en secondes)"
-                min={30}
-                max={240}
-                value={roundDuration}
-                onChange={(v) => setRoundDuration(typeof v === 'number' ? v : '')}
+                label="Joueurs par équipe"
+                min={1}
+                max={12}
+                value={teamSize}
+                onChange={(v) => setTeamSize(typeof v === 'number' ? v : '')}
+                disabled={!user}
+              />
+            </Group>
+            <Group>
+              <Switch
+                checked={isPrivate}
+                onChange={(e) => setIsPrivate(e.currentTarget.checked)}
+                label="Salle privée (n'apparait pas dans la liste publique)"
                 disabled={!user}
               />
             </Group>

@@ -1,13 +1,14 @@
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class CreateRoomDto {
   @IsString()
   name!: string;
 
+  @IsOptional()
   @IsInt()
   @Min(2)
-  @Max(12)
-  maxPlayers = 8;
+  @Max(60)
+  maxPlayers?: number; // Désormais optionnel: calculé via équipes si teamCount & teamSize sont définis
 
   @IsInt()
   @Min(30)
@@ -20,4 +21,22 @@ export class CreateRoomDto {
   @Min(1)
   @Max(20)
   totalRounds: number = 3;
+
+  // Équipes à la création (optionnel)
+  @IsOptional()
+  @IsInt()
+  @Min(2)
+  @Max(6)
+  teamCount?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  teamSize?: number;
+
+  // Visibilité de la salle
+  @IsOptional()
+  @IsBoolean()
+  isPrivate?: boolean;
 }

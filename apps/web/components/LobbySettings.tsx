@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Card, Group, NumberInput, Stack, Text, Title, Alert, Divider, Badge, TextInput, ActionIcon, Flex, Box } from '@mantine/core';
+import { Button, Card, Group, NumberInput, Stack, Text, Title, Alert, Divider, Badge, Flex, Box } from '@mantine/core';
 import { IconInfoCircle, IconCrown, IconCopy, IconCheck } from '@tabler/icons-react';
 
 import { getSocket } from '@/lib/socket';
@@ -14,9 +14,11 @@ interface Props {
 
 export default function LobbySettings({ room }: Props) {
   const playerId = useGameStore((state) => state.playerId);
-  const [maxPlayers, setMaxPlayers] = useState<number | ''>(room.maxPlayers);
+  // maxPlayers supprimé du panneau lobby (capacité auto par équipes)
   const [roundDuration, setRoundDuration] = useState<number | ''>(room.roundDuration);
   const [totalRounds, setTotalRounds] = useState<number | ''>(room.totalRounds ?? 3);
+  const [teamCount, setTeamCount] = useState<number | ''>(room.teamCount ?? 2);
+  const [teamSize, setTeamSize] = useState<number | ''>(room.teamSize ?? 2);
   const [error, setError] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -29,10 +31,11 @@ export default function LobbySettings({ room }: Props) {
 
   // Synchroniser les valeurs locales avec les changements de la room
   useEffect(() => {
-    setMaxPlayers(room.maxPlayers);
     setRoundDuration(room.roundDuration);
     setTotalRounds(room.totalRounds ?? 3);
-  }, [room.maxPlayers, room.roundDuration, room.totalRounds]);
+    setTeamCount(room.teamCount ?? 2);
+    setTeamSize(room.teamSize ?? 2);
+  }, [room.maxPlayers, room.roundDuration, room.totalRounds, room.teamCount, room.teamSize]);
 
   const isHost = useMemo(() => {
     return room.hostId === playerId;
@@ -49,19 +52,21 @@ export default function LobbySettings({ room }: Props) {
 
   const hasChanges = useMemo(() => {
     return (
-      (typeof maxPlayers === 'number' && maxPlayers !== room.maxPlayers) ||
       (typeof roundDuration === 'number' && roundDuration !== room.roundDuration) ||
-      (typeof totalRounds === 'number' && totalRounds !== (room.totalRounds ?? 3))
+      (typeof totalRounds === 'number' && totalRounds !== (room.totalRounds ?? 3)) ||
+      (typeof teamCount === 'number' && teamCount !== (room.teamCount ?? 2)) ||
+      (typeof teamSize === 'number' && teamSize !== (room.teamSize ?? 2))
     );
-  }, [maxPlayers, roundDuration, totalRounds, room.maxPlayers, room.roundDuration, room.totalRounds]);
+  }, [roundDuration, totalRounds, teamCount, teamSize, room.roundDuration, room.totalRounds, room.teamCount, room.teamSize]);
 
   const handleSave = () => {
     setError(undefined);
     setLoading(true);
     const payload: any = {};
-    if (typeof maxPlayers === 'number') payload.maxPlayers = maxPlayers;
-  if (typeof roundDuration === 'number') payload.roundDuration = roundDuration;
-  if (typeof totalRounds === 'number') payload.totalRounds = totalRounds;
+    if (typeof roundDuration === 'number') payload.roundDuration = roundDuration;
+    if (typeof totalRounds === 'number') payload.totalRounds = totalRounds;
+    if (typeof teamCount === 'number') payload.teamCount = teamCount;
+    if (typeof teamSize === 'number') payload.teamSize = teamSize;
 
     getSocket().emit('room:update', payload);
     setTimeout(() => setLoading(false), 300); // optimiste
@@ -128,15 +133,7 @@ export default function LobbySettings({ room }: Props) {
         )}
         <Group grow>
           <NumberInput
-            label="Joueurs maximum"
-            min={2}
-            max={12}
-            value={maxPlayers}
-            onChange={(v) => setMaxPlayers(typeof v === 'number' ? v : '')}
-            disabled={!isHost}
-          />
-          <NumberInput
-            label="Durée d'une manche (en secondes)"
+            label="Durée d'une manche (en s)"
             min={30}
             max={240}
             value={roundDuration}
@@ -149,6 +146,24 @@ export default function LobbySettings({ room }: Props) {
             max={20}
             value={totalRounds}
             onChange={(v) => setTotalRounds(typeof v === 'number' ? v : '')}
+            disabled={!isHost}
+          />
+        </Group>
+        <Group grow>
+          <NumberInput
+            label="Nombre d'équipes"
+            min={2}
+            max={6}
+            value={teamCount}
+            onChange={(v) => setTeamCount(typeof v === 'number' ? v : '')}
+            disabled={!isHost}
+          />
+          <NumberInput
+            label="Nombre de joueurs par équipe"
+            min={1}
+            max={12}
+            value={teamSize}
+            onChange={(v) => setTeamSize(typeof v === 'number' ? v : '')}
             disabled={!isHost}
           />
         </Group>

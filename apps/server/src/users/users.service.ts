@@ -24,4 +24,19 @@ export class UsersService {
   async findById(id: string) {
     return this.model.findById(id).exec();
   }
+
+  async updateById(
+    id: string,
+    update: Partial<Pick<User, 'pseudo' | 'twitchUrl' | 'allowPublicFriendRequests'>>
+  ) {
+    return this.model
+      .findByIdAndUpdate(
+        id,
+        {
+          $set: update
+        },
+        { new: true }
+      )
+      .exec();
+  }
 }

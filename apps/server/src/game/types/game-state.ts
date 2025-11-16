@@ -8,6 +8,8 @@ export interface PlayerState {
   joinOrder?: number;
   // Inventaire du joueur (nouveau système d'items)
   inventory?: PlayerItem[];
+  // Équipe du joueur (assignée au démarrage si le mode équipe est activé)
+  teamId?: string;
 }
 
 export interface RoundState {
@@ -46,6 +48,15 @@ export interface RoomState {
   drawerOrder?: string[]; // séquence déterministe des joueurs
   currentDrawerIndex?: number; // index actuel dans drawerOrder
   hostId?: string; // ID du joueur hôte (celui qui peut configurer et lancer la partie)
+  // Visibilité de la salle (public par défaut). Si true, la salle n'apparaît pas dans la liste publique.
+  isPrivate?: boolean;
+  // ===================== Équipes =====================
+  // Nombre d'équipes (2..6 typiquement). Si non défini, le mode équipe est désactivé
+  teamCount?: number;
+  // Taille maximale d'une équipe. Si non défini, répartition uniforme sans borne stricte
+  teamSize?: number;
+  // Optionnel: mapping des équipes vers leurs membres (dérivable via players[].teamId)
+  // teams?: Record<string, string[]>;
   // Mots proposés au dessinateur lors de la phase de choix
   pendingWordChoices?: string[];
   // Instance pré-consommée de l'item Improvisation (pour saisie du mot)

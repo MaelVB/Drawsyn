@@ -10,6 +10,9 @@ export interface CreateRoomOptions {
   roundDuration: number;
   totalRounds: number;
   hostId: string;
+  teamCount?: number;
+  teamSize?: number;
+  isPrivate?: boolean;
 }
 
 @Injectable()
@@ -40,7 +43,10 @@ export class LobbyService implements OnModuleInit {
       currentRound: 0,
       drawerOrder: [],
       currentDrawerIndex: -1,
-      hostId: options.hostId
+      hostId: options.hostId,
+      teamCount: options.teamCount,
+      teamSize: options.teamSize,
+      isPrivate: options.isPrivate ?? false
     };
 
     this.rooms.set(id, room);

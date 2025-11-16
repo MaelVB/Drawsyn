@@ -11,6 +11,13 @@ export class User {
 
   @Prop({ required: true })
   password!: string;
+
+  @Prop({ required: false, trim: true })
+  twitchUrl?: string;
+
+  // Préférences liées aux amis
+  @Prop({ default: true })
+  allowPublicFriendRequests!: boolean;
 }
 
 export type UserDocument = HydratedDocument<User>;

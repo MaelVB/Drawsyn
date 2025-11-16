@@ -31,7 +31,7 @@ import InventoryBar from '@/components/InventoryBar';
 import CrtOverlay from '@/components/CrtOverlay';
 
 import { getSocket } from '@/lib/socket';
-import { register, login } from '@/lib/api';
+import { register, login, sendPublicFriendRequest } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth-store';
 import { useGameStore } from '@/stores/game-store';
 import type { PlayerState, PrimaryNotification } from '@/stores/game-store';
@@ -50,8 +50,9 @@ export default function GameRoomPage() {
   const params = useParams<{ roomId: string }>();
   const router = useRouter();
   const roomId = params?.roomId;
-  const { user, hydrated } = useAuthStore((state) => ({
+  const { user, token, hydrated } = useAuthStore((state) => ({
     user: state.user,
+    token: state.token,
     hydrated: state.hydrated
   }));
   const clearAuth = useAuthStore((state) => state.clearAuth);
@@ -121,6 +122,8 @@ export default function GameRoomPage() {
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState<string | undefined>();
   const [authLoading, setAuthLoading] = useState(false);
+  const [selectedPlayer, setSelectedPlayer] = useState<PlayerState | null>(null);
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
   const colorScheme = useComputedColorScheme('light', { getInitialValueInEffect: true });
   const altMessageBg = useMemo(() => (colorScheme === 'dark' ? 'var(--mantine-color-dark-5)' : 'var(--mantine-color-gray-2)'), [colorScheme]);
   const primaryNotificationAccent = useMemo(() => {
@@ -159,6 +162,13 @@ export default function GameRoomPage() {
     // Par défaut, afficher aux non-dessinateurs
     return true;
   }, [currentRoom, playerId]);
+
+  const handlePlayerClick = (player: PlayerState) => {
+    if (!user) return;
+    if (player.id === user.id) return; // pas de demande à soi-même
+    setSelectedPlayer(player);
+    setProfileModalOpen(true);
+  };
 
   const clearCanvas = useCallback(() => {
     const canvas = canvasRef.current;
@@ -1089,7 +1099,7 @@ export default function GameRoomPage() {
         </Text>
       </Modal>
 
-      {primaryNotification && (
+  {primaryNotification && (
         <Box
           style={{
             position: 'fixed',
@@ -1126,7 +1136,7 @@ export default function GameRoomPage() {
 
       {/* Contenu de la room */}
       {user && (
-    <Stack p="lg" gap="lg">
+        <Stack p="lg" gap="lg">
       <Group justify="space-between">
         <div>
           <Title order={2}>{currentRoom?.name ?? 'Salle de jeu'}</Title>
@@ -1149,7 +1159,46 @@ export default function GameRoomPage() {
         </Alert>
       )}
 
-  <Group align="flex-start" justify="center" gap="lg" wrap="nowrap">
+      <Modal
+        opened={profileModalOpen}
+        onClose={() => setProfileModalOpen(false)}
+        title={selectedPlayer ? `Profil de ${selectedPlayer.name}` : 'Profil joueur'}
+      >
+        {selectedPlayer && (
+          <Stack>
+            <Text>Pseudo : {selectedPlayer.name}</Text>
+            <Text size="sm" c="dimmed">
+              Score actuel : {selectedPlayer.score} pts
+            </Text>
+
+            <Button
+              disabled={!token || !user || selectedPlayer.id === user.id}
+              onClick={async () => {
+                if (!token || !user) return;
+                try {
+                  await sendPublicFriendRequest(token, selectedPlayer.id);
+                  notifications.show({
+                    title: 'Demande envoyée',
+                    message:
+                      "La demande d'ami a été créée ou est en attente de confirmation.",
+                    color: 'blue'
+                  });
+                  setProfileModalOpen(false);
+                } catch (e) {
+                  notifications.show({
+                    title: 'Erreur',
+                    message: (e as Error).message,
+                    color: 'red'
+                  });
+                }
+              }}
+            >
+              Envoyer une demande de connexion
+            </Button>
+          </Stack>
+        )}
+      </Modal>
+      <Group align="flex-start" justify="center" gap="lg" wrap="nowrap">
         {/* Colonne de gauche - Joueurs */}
         <Card withBorder padding="md" radius="md" style={{ width: 250, flexShrink: 0 }}>
           <Title order={4} ta="center">Joueurs</Title>
@@ -1194,7 +1243,23 @@ export default function GameRoomPage() {
                         {orderNumber && (
                           <Text size="sm" c="dimmed" fw={500}>{orderNumber}.</Text>
                         )}
-                        <Text size="sm" fw={playerId === player.id ? 700 : 500}>{player.name}</Text>
+                        <Text
+                          size="sm"
+                          fw={playerId === player.id ? 700 : 500}
+                          style={{
+                            textDecoration:
+                              playerId && player.id !== playerId && currentRoom?.players[playerId]?.teamId && player.teamId && currentRoom?.players[playerId]?.teamId === player.teamId
+                                ? 'underline'
+                                : 'none',
+                            cursor: user && player.id !== user.id ? 'pointer' : 'default'
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePlayerClick(player);
+                          }}
+                        >
+                          {player.name}
+                        </Text>
                         {currentRoom.hostId === player.id && (
                           <Badge size="xs" color="yellow" variant="light" style={{ display: "block", transform: "translateY(0.5px)" }}>Hôte</Badge>
                         )}
@@ -1292,7 +1357,7 @@ export default function GameRoomPage() {
                           ? 'rgba(255,255,255,0.5)'
                           : `${brushColor}50`, // couleur avec légère transparence (hex + 50 ≈ ~31% alpha)
                         transform: 'translateZ(0)'
-                      }}
+                        }}
                     />
                   )}
                 </Box>
