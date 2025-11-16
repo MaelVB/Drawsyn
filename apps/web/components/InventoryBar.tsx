@@ -335,7 +335,7 @@ export default function InventoryBar({
             transform: 'translate(-50%, -14px)',
             backgroundColor: 'var(--mantine-color-dark-6)',
             border: isCRTTargeting ? '1px solid var(--mantine-color-blue-5)' : '1px solid var(--mantine-color-pink-5)',
-            boxShadow: isCRTTargeting ? '0 12px 28px rgba(76, 110, 245, 0.35)' : '0 12px 28px rgba(255, 120, 203, 0.35)',
+            boxShadow: isCRTTargeting ? '0 0 28px rgba(76, 110, 245, 0.35)' : '0 0 28px rgba(255, 120, 203, 0.35)',
             display: 'flex',
             alignItems: 'center',
             gap: 16,

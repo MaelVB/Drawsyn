@@ -1229,8 +1229,7 @@ export default function GameRoomPage() {
                       boxShadow: isSelectable
                         ? (canSelectCrtTarget ? '0 0 0 2px rgba(76, 110, 245, 0.35)' : '0 0 0 2px rgba(255, 120, 203, 0.35)')
                         : undefined,
-                      transition: 'transform 120ms ease, outline 120ms ease, box-shadow 120ms ease',
-                      transform: isSelectable ? 'translateX(4px)' : undefined,
+                      transition: 'outline 60ms ease, box-shadow 60ms ease',
                       opacity: player.connected ? 1 : 0.5
                     }}
                     onClick={() => {
@@ -1238,38 +1237,45 @@ export default function GameRoomPage() {
                       if (canSelectCrtTarget) return handleCrtTargetClick(player);
                     }}
                   >
-                    <Group justify="space-between">
-                      <Group gap={4} align="center">
-                        {orderNumber && (
-                          <Text size="sm" c="dimmed" fw={500}>{orderNumber}.</Text>
-                        )}
-                        <Text
-                          size="sm"
-                          fw={playerId === player.id ? 700 : 500}
-                          style={{
-                            textDecoration:
-                              playerId && player.id !== playerId && currentRoom?.players[playerId]?.teamId && player.teamId && currentRoom?.players[playerId]?.teamId === player.teamId
-                                ? 'underline'
-                                : 'none',
-                            cursor: user && player.id !== user.id ? 'pointer' : 'default'
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handlePlayerClick(player);
-                          }}
-                        >
-                          {player.name}
-                        </Text>
-                        {currentRoom.hostId === player.id && (
-                          <Badge size="xs" color="yellow" variant="light" style={{ display: "block", transform: "translateY(0.5px)" }}>Hôte</Badge>
-                        )}
-                        {round?.drawerId === player.id && <IconBrush size={16} style={{ display: "block", transform: "translateY(1px)" }} />}
-                        {!player.connected && <Text size="xs" c="dimmed">(déconnecté)</Text>}
+                    <Stack>
+                      <Group justify="space-between">
+                        <Group gap={4} align="center">
+                          {orderNumber && (
+                            <Text size="sm" c="dimmed" fw={500}>{orderNumber}.</Text>
+                          )}
+                          <Text
+                            size="sm"
+                            fw={playerId === player.id ? 700 : 500}
+                            style={{
+                              textDecoration:
+                                playerId && player.id !== playerId && currentRoom?.players[playerId]?.teamId && player.teamId && currentRoom?.players[playerId]?.teamId === player.teamId
+                                  ? 'underline'
+                                  : 'none',
+                              cursor: user && player.id !== user.id ? 'pointer' : 'default'
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePlayerClick(player);
+                            }}
+                          >
+                            {player.name}
+                          </Text>
+                          {round?.drawerId === player.id && <IconBrush size={16} style={{ display: "block", transform: "translateY(1px)" }} />}
+                          {!player.connected && <Text size="xs" c="dimmed">(déconnecté)</Text>}
+                        </Group>
                       </Group>
-                      <Badge variant={playerId === player.id ? 'filled' : 'light'} size="sm">
-                        {player.score} pts
-                      </Badge>
-                    </Group>
+                      
+                      <Group justify="space-between">
+                        <Group gap={4} align="center">
+                          {currentRoom.hostId === player.id && (
+                            <Badge size="xs" color="yellow" variant="light" style={{ display: "block", transform: "translateY(0.5px)" }}>Hôte</Badge>
+                          )}
+                        </Group>
+                        <Badge variant={playerId === player.id ? 'filled' : 'light'} size="sm">
+                          {player.score} pts
+                        </Badge>
+                      </Group>
+                    </Stack>
                   </Paper>
                 );
               })}
