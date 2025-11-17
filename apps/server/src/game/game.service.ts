@@ -704,7 +704,7 @@ export class GameService {
 
   /**
    * Calcule et révèle progressivement les lettres du mot
-   * Règle : 50% du mot révélé quand le timer atteint 0s
+   * Règle : 30% du mot révélé quand le timer atteint 0s
    * Commence par la 4ème lettre, puis +4 à chaque fois (en sautant les lettres déjà révélées)
    */
   private updateRevealedLetters(room: RoomState): string | null {
@@ -714,10 +714,10 @@ export class GameService {
     
     const word = room.round.word;
     const wordLength = word.length;
-      // Maximum strict de 50% du mot (arrondi inférieur)
-      const targetRevealCount = Math.floor(wordLength * 0.5); // 50% max
+      // Maximum strict de 30% du mot (arrondi inférieur)
+      const targetRevealCount = Math.floor(wordLength * 0.3); // 30% max
     
-    // Si on a déjà révélé 50% ou plus, ne rien faire
+    // Si on a déjà révélé 30% ou plus, ne rien faire
     if (room.round.revealedIndices.length >= targetRevealCount) {
       return null;
     }

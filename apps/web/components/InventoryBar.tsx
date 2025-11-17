@@ -29,16 +29,16 @@ import { getSocket } from '@/lib/socket';
 import { useGameStore } from '@/stores/game-store';
 import type { PlayerItem, PlayerState } from '@/stores/game-store';
 
+type ItemCategory = 'visual' | 'support' | 'block' | 'drawing';
+
 interface InventoryBarProps {
   onRequestImprovisation?: (instanceId: string) => void;
-  onRequestPartyTime?: (instanceId: string) => void;
-  isPartyTimeTargeting?: boolean;
-  activePartyInstanceId?: string | null;
-  onCancelPartyTime?: () => void;
-  onRequestCRT?: (instanceId: string) => void;
-  isCRTTargeting?: boolean;
-  activeCRTInstanceId?: string | null;
-  onCancelCRT?: () => void;
+  // Ciblage générique d'un item qui nécessite une cible
+  onRequestTargeting?: (payload: { instanceId: string; itemId: string; category: ItemCategory }) => void;
+  isTargeting?: boolean;
+  activeTargetInstanceId?: string | null;
+  activeTargetCategory?: ItemCategory;
+  onCancelTargeting?: () => void;
 }
 
 // Fonction helper pour obtenir l'icône d'un item
@@ -85,14 +85,11 @@ function getItemIcon(itemId: string, size: number = 24) {
 
 export default function InventoryBar({
   onRequestImprovisation,
-  onRequestPartyTime,
-  isPartyTimeTargeting,
-  activePartyInstanceId,
-  onCancelPartyTime,
-  onRequestCRT,
-  isCRTTargeting,
-  activeCRTInstanceId,
-  onCancelCRT
+  onRequestTargeting,
+  isTargeting,
+  activeTargetInstanceId,
+  activeTargetCategory,
+  onCancelTargeting
 }: InventoryBarProps) {
   // isCompact = mode permanent (true = compact, false = ouvert)
   const [isCompact, setIsCompact] = useState(false);
@@ -151,12 +148,11 @@ export default function InventoryBar({
     switch (item.itemId) {
       case 'improvisation':
         return isDrawer && currentRoom?.status === 'choosing';
-      case 'party_time':
-        return canUseTargeted;
-      case 'crt':
-        return canUseTargeted;
-      default:
+      default: {
+        const def = itemsCatalog.find((x) => x.id === item.itemId);
+        if (def?.requiresTarget) return canUseTargeted;
         return false;
+      }
     }
   };
 
@@ -164,12 +160,11 @@ export default function InventoryBar({
     switch (item.itemId) {
       case 'improvisation':
         return "Non utilisable maintenant";
-      case 'party_time':
-        return canUseTargeted ? undefined : 'Aucun autre joueur connecté';
-      case 'crt':
-        return canUseTargeted ? undefined : 'Aucun autre joueur connecté';
-      default:
+      default: {
+        const def = itemsCatalog.find((x) => x.id === item.itemId);
+        if (def?.requiresTarget) return canUseTargeted ? undefined : 'Aucun autre joueur connecté';
         return 'Non utilisable maintenant';
+      }
     }
   };
 
@@ -198,17 +193,12 @@ export default function InventoryBar({
         getSocket().emit('item:init', { instanceId });
         onRequestImprovisation(instanceId);
       }
-    } else if (itemId === 'party_time') {
-      if (onRequestPartyTime) {
+    } else {
+      const def = itemsCatalog.find((x) => x.id === itemId);
+      if (def?.requiresTarget && onRequestTargeting) {
         setIsCompact(false);
         setIsHovered(false);
-        onRequestPartyTime(instanceId);
-      }
-    } else if (itemId === 'crt') {
-      if (onRequestCRT) {
-        setIsCompact(false);
-        setIsHovered(false);
-        onRequestCRT(instanceId);
+        onRequestTargeting({ instanceId, itemId, category: def.category });
       }
     }
   };
@@ -323,7 +313,7 @@ export default function InventoryBar({
         }}
       >
 
-      {(isPartyTimeTargeting || isCRTTargeting) && (
+      {isTargeting && (
         <Paper
           shadow="xl"
           radius="md"
@@ -334,8 +324,18 @@ export default function InventoryBar({
             left: '50%',
             transform: 'translate(-50%, -14px)',
             backgroundColor: 'var(--mantine-color-dark-6)',
-            border: isCRTTargeting ? '1px solid var(--mantine-color-blue-5)' : '1px solid var(--mantine-color-pink-5)',
-            boxShadow: isCRTTargeting ? '0 0 28px rgba(76, 110, 245, 0.35)' : '0 0 28px rgba(255, 120, 203, 0.35)',
+            border: `1px solid ${
+              activeTargetCategory === 'visual' ? 'var(--mantine-color-pink-5)'
+              : activeTargetCategory === 'support' ? 'var(--mantine-color-green-5)'
+              : activeTargetCategory === 'block' ? 'var(--mantine-color-yellow-5)'
+              : 'var(--mantine-color-blue-5)'
+            }`,
+            boxShadow: `${
+              activeTargetCategory === 'visual' ? '0 0 28px rgba(255, 120, 203, 0.35)'
+              : activeTargetCategory === 'support' ? '0 0 28px rgba(34, 197, 94, 0.35)'
+              : activeTargetCategory === 'block' ? '0 0 28px rgba(250, 204, 21, 0.35)'
+              : '0 0 28px rgba(76, 110, 245, 0.35)'
+            }`,
             display: 'flex',
             alignItems: 'center',
             gap: 16,
@@ -345,14 +345,18 @@ export default function InventoryBar({
           }}
         >
           <Group gap="sm" align="center" wrap="nowrap" style={{ flex: 1 }}>
-            {isCRTTargeting ? (
-              <IconDeviceTv size={24} color="var(--mantine-color-blue-4)" />
-            ) : (
-              <IconConfetti size={24} color="var(--mantine-color-pink-4)" />
-            )}
+            {(() => {
+              const color = activeTargetCategory === 'visual' ? 'var(--mantine-color-pink-4)'
+                : activeTargetCategory === 'support' ? 'var(--mantine-color-green-4)'
+                : activeTargetCategory === 'block' ? 'var(--mantine-color-yellow-4)'
+                : 'var(--mantine-color-blue-4)';
+              // Icône générique selon la catégorie (on privilégie l'icône de confettis/TV si connu via item lui-même, mais ici on reste générique)
+              // On affiche simplement une pastille colorée via un carré
+              return <Box style={{ width: 24, height: 24, borderRadius: 6, backgroundColor: color }} />;
+            })()}
             <Stack gap={2} style={{ flex: 1 }}>
-              <Text fw={600} size="sm">{isCRTTargeting ? 'CRT prêt' : 'Jour de fête prêt'}</Text>
-              <Text size="xs" c="dimmed">Cliquez sur un joueur à gauche pour {isCRTTargeting ? 'appliquer le filtre CRT' : 'déclencher les confettis'}.</Text>
+              <Text fw={600} size="sm">Item prêt</Text>
+              <Text size="xs" c="dimmed">Cliquez sur un joueur à gauche pour appliquer l'effet.</Text>
             </Stack>
           </Group>
           <Button
@@ -361,7 +365,7 @@ export default function InventoryBar({
             color="gray"
             onClick={(event) => {
               event.stopPropagation();
-              if (isCRTTargeting) onCancelCRT?.(); else onCancelPartyTime?.();
+              onCancelTargeting?.();
             }}
           >
             Annuler
@@ -421,7 +425,14 @@ export default function InventoryBar({
             const usable = item ? canUseItem(item) : false;
             const disabledReason = item && !usable ? getDisabledReason(item) : undefined;
             const itemDef = item ? itemsCatalog.find(x => x.id === item.itemId) : undefined;
-            const isActivePartySelection = Boolean(isPartyTimeTargeting && item && activePartyInstanceId === item.instanceId);
+            const isActiveSelection = Boolean(isTargeting && item && activeTargetInstanceId === item.instanceId);
+            const activeBorderColor = activeTargetCategory === 'visual'
+              ? 'var(--mantine-color-pink-5)'
+              : activeTargetCategory === 'support'
+              ? 'var(--mantine-color-green-5)'
+              : activeTargetCategory === 'block'
+              ? 'var(--mantine-color-yellow-5)'
+              : 'var(--mantine-color-blue-5)';
             const content = item ? (
               <Box style={{ 
                 width: '100%',
@@ -457,8 +468,8 @@ export default function InventoryBar({
                   width: 60,
                   height: 60,
                   borderRadius: '8px',
-                  backgroundColor: isActivePartySelection ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-dark-5)',
-                  border: `2px solid ${isActivePartySelection ? 'var(--mantine-color-pink-5)' : 'var(--mantine-color-dark-4)'}`,
+                  backgroundColor: isActiveSelection ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-dark-5)',
+                  border: `2px solid ${isActiveSelection ? activeBorderColor : 'var(--mantine-color-dark-4)'}`,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -466,19 +477,19 @@ export default function InventoryBar({
                   cursor: item ? (usable ? 'pointer' : 'not-allowed') : 'default',
                   position: 'relative',
                   opacity: item && !usable ? 0.5 : 1,
-                  boxShadow: isActivePartySelection ? '0 0 0 3px rgba(255, 120, 203, 0.35)' : undefined
+                  boxShadow: isActiveSelection ? '0 0 0 3px rgba(255, 255, 255, 0.12)' : undefined
                 }}
                 onMouseEnter={(e) => {
                   if (item) {
-                    e.currentTarget.style.borderColor = isActivePartySelection ? 'var(--mantine-color-pink-5)' : 'var(--mantine-color-blue-6)';
+                    e.currentTarget.style.borderColor = isActiveSelection ? activeBorderColor : 'var(--mantine-color-blue-6)';
                     if (usable) {
                       e.currentTarget.style.backgroundColor = 'var(--mantine-color-dark-4)';
                     }
                   }
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = isActivePartySelection ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-dark-5)';
-                  e.currentTarget.style.borderColor = isActivePartySelection ? 'var(--mantine-color-pink-5)' : 'var(--mantine-color-dark-4)';
+                  e.currentTarget.style.backgroundColor = isActiveSelection ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-dark-5)';
+                  e.currentTarget.style.borderColor = isActiveSelection ? activeBorderColor : 'var(--mantine-color-dark-4)';
                 }}
               >
                 {content}

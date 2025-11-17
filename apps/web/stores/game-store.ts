@@ -89,6 +89,8 @@ export interface GameItemDef {
   name: string;
   description: string;
   cost: number;
+  category: 'visual' | 'support' | 'block' | 'drawing';
+  requiresTarget?: boolean;
 }
 
 export interface PlayerItem {

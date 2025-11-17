@@ -35,7 +35,7 @@ import { getSocket } from '@/lib/socket';
 import { register, login, sendPublicFriendRequest } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth-store';
 import { useGameStore } from '@/stores/game-store';
-import type { PlayerState, PrimaryNotification } from '@/stores/game-store';
+import type { PlayerState, PrimaryNotification, ItemId } from '@/stores/game-store';
 import { useEffectsStore } from '@/stores/effects-store';
 
 interface GuessMessage {
@@ -99,8 +99,8 @@ export default function GameRoomPage() {
   const [wordChoices, setWordChoices] = useState<string[] | null>(null);
   const [improvInstanceId, setImprovInstanceId] = useState<string | null>(null);
   const [improvWord, setImprovWord] = useState('');
-  const [partySelection, setPartySelection] = useState<{ instanceId: string } | null>(null);
-  const [crtSelection, setCrtSelection] = useState<{ instanceId: string } | null>(null);
+  type ItemCategory = 'visual' | 'support' | 'block' | 'drawing';
+  const [itemTargeting, setItemTargeting] = useState<{ instanceId: string; itemId: ItemId; category: ItemCategory } | null>(null);
   // Equipes: suivi local des joueurs dont l'équipe est connue (en plus de la vôtre)
   const [knownTeamPlayerIds, setKnownTeamPlayerIds] = useState<Set<string>>(new Set());
   const startHurry = useEffectsStore((s) => s.startHurry);
@@ -789,20 +789,20 @@ export default function GameRoomPage() {
     setGuessText('');
   };
 
-  const handleBeginPartySelection = useCallback((instanceId: string) => {
-    setPartySelection({ instanceId });
+  const handleBeginTargeting = useCallback((payload: { instanceId: string; itemId: ItemId; category: ItemCategory }) => {
+    setItemTargeting(payload);
   }, []);
 
-  const handleCancelPartySelection = useCallback(() => {
-    setPartySelection(null);
+  const handleCancelTargeting = useCallback(() => {
+    setItemTargeting(null);
   }, []);
 
-  const handlePartyTargetClick = useCallback((target: PlayerState) => {
-    if (!partySelection) return;
+  const handleTargetClick = useCallback((target: PlayerState) => {
+    if (!itemTargeting) return;
     if (!playerId) {
-      setPartySelection(null);
+      setItemTargeting(null);
       notifications.show({
-        title: 'Jour de fête',
+        title: 'Item',
         message: 'Votre session a expiré, reconnectez-vous pour utiliser cet item.',
         color: 'red',
         position: 'bottom-right',
@@ -812,7 +812,7 @@ export default function GameRoomPage() {
     }
     if (!target.connected) {
       notifications.show({
-        title: 'Jour de fête',
+        title: 'Item',
         message: `${target.name} est déconnecté, choisissez un autre joueur.`,
         color: 'yellow',
         position: 'bottom-right',
@@ -822,62 +822,7 @@ export default function GameRoomPage() {
     }
     if (target.id === playerId) {
       notifications.show({
-        title: 'Jour de fête',
-        message: 'Vous devez choisir un autre joueur pour lancer la fête.',
-        color: 'yellow',
-        position: 'bottom-right',
-        autoClose: 2600
-      });
-      return;
-    }
-
-    const socket = getSocket();
-    const instanceId = partySelection.instanceId;
-    socket.emit('item:use', { instanceId, params: { targetId: target.id } });
-    notifications.show({
-      title: 'Jour de fête',
-      message: `Vous avez utilisé l'item sur ${target.name} !`,
-      color: 'teal',
-      position: 'bottom-right',
-      autoClose: 3500
-    });
-    setPartySelection(null);
-  }, [partySelection, playerId]);
-
-  const handleBeginCrtSelection = useCallback((instanceId: string) => {
-    setCrtSelection({ instanceId });
-  }, []);
-
-  const handleCancelCrtSelection = useCallback(() => {
-    setCrtSelection(null);
-  }, []);
-
-  const handleCrtTargetClick = useCallback((target: PlayerState) => {
-    if (!crtSelection) return;
-    if (!playerId) {
-      setCrtSelection(null);
-      notifications.show({
-        title: 'CRT',
-        message: 'Votre session a expiré, reconnectez-vous pour utiliser cet item.',
-        color: 'red',
-        position: 'bottom-right',
-        autoClose: 3500
-      });
-      return;
-    }
-    if (!target.connected) {
-      notifications.show({
-        title: 'CRT',
-        message: `${target.name} est déconnecté, choisissez un autre joueur.`,
-        color: 'yellow',
-        position: 'bottom-right',
-        autoClose: 2800
-      });
-      return;
-    }
-    if (target.id === playerId) {
-      notifications.show({
-        title: 'CRT',
+        title: 'Item',
         message: 'Vous devez cibler un autre joueur.',
         color: 'yellow',
         position: 'bottom-right',
@@ -887,49 +832,48 @@ export default function GameRoomPage() {
     }
 
     const socket = getSocket();
-    const instanceId = crtSelection.instanceId;
-    socket.emit('item:use', { instanceId, params: { targetId: target.id } });
-    notifications.show({
-      title: 'CRT',
-      message: `Vous avez appliqué l'effet sur ${target.name}.`,
-      color: 'teal',
-      position: 'bottom-right',
-      autoClose: 3500
-    });
-    setCrtSelection(null);
-  }, [crtSelection, playerId]);
+    const { instanceId, itemId, category } = itemTargeting;
+    if (itemId === 'party_time' || itemId === 'crt') {
+      socket.emit('item:use', { instanceId, params: { targetId: target.id } });
+      notifications.show({
+        title: 'Item',
+        message: `Vous avez utilisé l'item sur ${target.name}.`,
+        color: 'teal',
+        position: 'bottom-right',
+        autoClose: 3500
+      });
+    } else {
+      const color = category === 'visual' ? 'pink' : category === 'support' ? 'green' : category === 'block' ? 'yellow' : 'blue';
+      notifications.show({
+        title: 'Bientôt disponible',
+        message: "L'utilisation de cet item n'est pas encore disponible.",
+        color,
+        position: 'bottom-right',
+        autoClose: 3500
+      });
+    }
+    setItemTargeting(null);
+  }, [itemTargeting, playerId]);
+
+  // Ciblage CRT fusionné dans handleTargetClick
 
   useEffect(() => {
     clearCanvas();
   }, [clearCanvas]);
 
   useEffect(() => {
-    if (!partySelection) return;
+    if (!itemTargeting) return;
     if (!currentRoom || !playerId) {
-      setPartySelection(null);
+      setItemTargeting(null);
       return;
     }
     const hasOtherConnected = Object.values(currentRoom.players || {}).some(
       (p: PlayerState) => p.id !== playerId && p.connected
     );
     if (!hasOtherConnected) {
-      setPartySelection(null);
+      setItemTargeting(null);
     }
-  }, [partySelection, currentRoom, playerId]);
-
-  useEffect(() => {
-    if (!crtSelection) return;
-    if (!currentRoom || !playerId) {
-      setCrtSelection(null);
-      return;
-    }
-    const hasOtherConnected = Object.values(currentRoom.players || {}).some(
-      (p: PlayerState) => p.id !== playerId && p.connected
-    );
-    if (!hasOtherConnected) {
-      setCrtSelection(null);
-    }
-  }, [crtSelection, currentRoom, playerId]);
+  }, [itemTargeting, currentRoom, playerId]);
 
   useEffect(() => {
     return () => {
@@ -1273,9 +1217,22 @@ export default function GameRoomPage() {
                 const orderNumber = currentRoom.drawerOrder 
                   ? currentRoom.drawerOrder.indexOf(player.id) + 1 
                   : null;
-                const canSelectPartyTarget = Boolean(partySelection && player.id !== playerId && player.connected);
-                const canSelectCrtTarget = Boolean(crtSelection && player.id !== playerId && player.connected);
-                const isSelectable = canSelectPartyTarget || canSelectCrtTarget;
+                const canSelectTarget = Boolean(itemTargeting && player.id !== playerId && player.connected);
+                const isSelectable = canSelectTarget;
+                const outlineColor = itemTargeting?.category === 'visual'
+                  ? 'var(--mantine-color-pink-5)'
+                  : itemTargeting?.category === 'support'
+                  ? 'var(--mantine-color-green-5)'
+                  : itemTargeting?.category === 'block'
+                  ? 'var(--mantine-color-yellow-5)'
+                  : 'var(--mantine-color-blue-5)';
+                const shadowColor = itemTargeting?.category === 'visual'
+                  ? '0 0 0 2px rgba(255, 120, 203, 0.35)'
+                  : itemTargeting?.category === 'support'
+                  ? '0 0 0 2px rgba(34, 197, 94, 0.35)'
+                  : itemTargeting?.category === 'block'
+                  ? '0 0 0 2px rgba(250, 204, 21, 0.35)'
+                  : '0 0 0 2px rgba(76, 110, 245, 0.35)';
                 return (
                   <Stack key={player.id} gap="0px" align="center">
                     <Paper
@@ -1286,19 +1243,14 @@ export default function GameRoomPage() {
                       withBorder
                       style={{
                         cursor: isSelectable ? 'pointer' : 'default',
-                        outline: isSelectable
-                          ? (canSelectCrtTarget ? '2px solid var(--mantine-color-blue-5)' : '2px solid var(--mantine-color-pink-5)')
-                          : 'none',
-                        boxShadow: isSelectable
-                          ? (canSelectCrtTarget ? '0 0 0 2px rgba(76, 110, 245, 0.35)' : '0 0 0 2px rgba(255, 120, 203, 0.35)')
-                          : '0 0 0 2px rgba(255, 255, 255, 0.35)',
+                        outline: isSelectable ? `2px solid ${outlineColor}` : 'none',
+                        boxShadow: isSelectable ? shadowColor : '0 0 0 2px rgba(255, 255, 255, 0.35)',
                         transition: 'outline 60ms ease, box-shadow 60ms ease',
                         opacity: player.connected ? 1 : 0.5,
                         zIndex: 5
                       }}
                       onClick={() => {
-                        if (canSelectPartyTarget) return handlePartyTargetClick(player);
-                        if (canSelectCrtTarget) return handleCrtTargetClick(player);
+                        if (canSelectTarget) return handleTargetClick(player);
                       }}
                     >
                       <Group justify="space-between" style={{ gap: 8 }}>
@@ -1931,14 +1883,11 @@ export default function GameRoomPage() {
             setImprovWord('');
           }
         }}
-        onRequestPartyTime={handleBeginPartySelection}
-        isPartyTimeTargeting={!!partySelection}
-        activePartyInstanceId={partySelection?.instanceId ?? null}
-        onCancelPartyTime={handleCancelPartySelection}
-        onRequestCRT={handleBeginCrtSelection}
-        isCRTTargeting={!!crtSelection}
-        activeCRTInstanceId={crtSelection?.instanceId ?? null}
-        onCancelCRT={handleCancelCrtSelection}
+        onRequestTargeting={(payload) => handleBeginTargeting(payload as any)}
+        isTargeting={!!itemTargeting}
+        activeTargetInstanceId={itemTargeting?.instanceId ?? null}
+        activeTargetCategory={itemTargeting?.category}
+        onCancelTargeting={handleCancelTargeting}
       />
     </>
   );

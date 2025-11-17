@@ -97,6 +97,10 @@ export interface GameItemDef {
   name: string;
   description: string;
   cost: number; // coût en score
+  // Catégorie d'affichage (permet de colorer et de regrouper les comportements côté client)
+  category: 'visual' | 'support' | 'block' | 'drawing';
+  // Indique si l'item nécessite de cibler un autre joueur (sélection dans la liste de gauche)
+  requiresTarget?: boolean;
 }
 
 export interface PlayerItem {
