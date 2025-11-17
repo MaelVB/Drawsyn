@@ -30,6 +30,8 @@ export interface RoomState {
   // Équipes (optionnel)
   teamCount?: number;
   teamSize?: number;
+  // Items gratuits dans cette room
+  itemsFree?: boolean;
   round?: {
     drawerId: string;
     roundEndsAt?: number;

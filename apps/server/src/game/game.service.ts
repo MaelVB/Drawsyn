@@ -106,6 +106,10 @@ export class GameService {
       // Recalculer automatiquement la capacité d'accueil maximale
       room.maxPlayers = capacity;
     }
+    // Items gratuits
+    if (typeof dto.itemsFree === 'boolean') {
+      room.itemsFree = dto.itemsFree;
+    }
     room.lastActivityAt = Date.now();
     this.lobby.upsertRoom(room);
     return room;
@@ -177,7 +181,8 @@ export class GameService {
     const def = ITEMS[itemId];
     if (!def) throw new Error('Item inconnu');
     if (room.status === 'ended') throw new Error('La partie est terminée');
-    if (player.score < def.cost) throw new Error('Score insuffisant');
+    const free = room.itemsFree === true;
+    if (!free && player.score < def.cost) throw new Error('Score insuffisant');
     
     // Limite d'inventaire côté serveur: ne pas autoriser plus de 7 items
     const MAX_ITEMS = 7;
@@ -186,7 +191,9 @@ export class GameService {
       throw new Error(`Inventaire plein (max ${MAX_ITEMS})`);
     }
 
-    player.score -= def.cost;
+    if (!free) {
+      player.score -= def.cost;
+    }
     const item: PlayerItem = {
       instanceId: randomUUID(),
       itemId,

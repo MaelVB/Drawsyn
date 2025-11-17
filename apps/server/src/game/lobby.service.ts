@@ -13,6 +13,7 @@ export interface CreateRoomOptions {
   teamCount?: number;
   teamSize?: number;
   isPrivate?: boolean;
+  itemsFree?: boolean;
 }
 
 @Injectable()
@@ -46,7 +47,8 @@ export class LobbyService implements OnModuleInit {
       hostId: options.hostId,
       teamCount: options.teamCount,
       teamSize: options.teamSize,
-      isPrivate: options.isPrivate ?? false
+      isPrivate: options.isPrivate ?? false,
+      itemsFree: options.itemsFree ?? false
     };
 
     this.rooms.set(id, room);

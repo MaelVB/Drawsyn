@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, Max, Min } from 'class-validator';
 
 export class UpdateRoomSettingsDto {
   @IsOptional()
@@ -31,4 +31,9 @@ export class UpdateRoomSettingsDto {
   @Min(1)
   @Max(12)
   teamSize?: number;
+
+  // ============ Items ==========
+  @IsOptional()
+  @IsBoolean()
+  itemsFree?: boolean;
 }

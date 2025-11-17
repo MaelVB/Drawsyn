@@ -843,7 +843,7 @@ export default function GameRoomPage() {
         autoClose: 3500
       });
     } else {
-      const color = category === 'visual' ? 'pink' : category === 'support' ? 'green' : category === 'block' ? 'yellow' : 'blue';
+      const color = category === 'visual' ? 'pink' : category === 'support' ? 'green' : category === 'block' ? 'yellow' : category === 'drawing' ? 'orange' : 'blue';
       notifications.show({
         title: 'Bientôt disponible',
         message: "L'utilisation de cet item n'est pas encore disponible.",
@@ -1225,6 +1225,8 @@ export default function GameRoomPage() {
                   ? 'var(--mantine-color-green-5)'
                   : itemTargeting?.category === 'block'
                   ? 'var(--mantine-color-yellow-5)'
+                  : itemTargeting?.category === 'drawing'
+                  ? 'var(--mantine-color-orange-5)'
                   : 'var(--mantine-color-blue-5)';
                 const shadowColor = itemTargeting?.category === 'visual'
                   ? '0 0 0 2px rgba(255, 120, 203, 0.35)'
@@ -1232,6 +1234,8 @@ export default function GameRoomPage() {
                   ? '0 0 0 2px rgba(34, 197, 94, 0.35)'
                   : itemTargeting?.category === 'block'
                   ? '0 0 0 2px rgba(250, 204, 21, 0.35)'
+                  : itemTargeting?.category === 'drawing'
+                  ? '0 0 0 2px rgba(255, 146, 43, 0.35)'
                   : '0 0 0 2px rgba(76, 110, 245, 0.35)';
                 return (
                   <Stack key={player.id} gap="0px" align="center">

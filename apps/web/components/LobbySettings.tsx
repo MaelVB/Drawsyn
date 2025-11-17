@@ -20,6 +20,7 @@ export default function LobbySettings({ room }: Props) {
   const [totalRounds, setTotalRounds] = useState<number | ''>(room.totalRounds ?? 3);
   const [teamCount, setTeamCount] = useState<number | ''>(room.teamCount ?? 2);
   const [teamSize, setTeamSize] = useState<number | ''>(room.teamSize ?? 2);
+  const [itemsFree, setItemsFree] = useState<boolean>(room.itemsFree ?? false);
   const [error, setError] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -37,7 +38,8 @@ export default function LobbySettings({ room }: Props) {
     setTeamCount(room.teamCount ?? 2);
     setTeamSize(room.teamSize ?? 2);
     setUnlimited(room.roundDuration === 0);
-  }, [room.maxPlayers, room.roundDuration, room.totalRounds, room.teamCount, room.teamSize]);
+    setItemsFree(room.itemsFree ?? false);
+  }, [room.maxPlayers, room.roundDuration, room.totalRounds, room.teamCount, room.teamSize, room.itemsFree]);
 
   const isHost = useMemo(() => {
     return room.hostId === playerId;
@@ -58,9 +60,10 @@ export default function LobbySettings({ room }: Props) {
       (unlimited !== (room.roundDuration === 0)) ||
       (typeof totalRounds === 'number' && totalRounds !== (room.totalRounds ?? 3)) ||
       (typeof teamCount === 'number' && teamCount !== (room.teamCount ?? 2)) ||
-      (typeof teamSize === 'number' && teamSize !== (room.teamSize ?? 2))
+      (typeof teamSize === 'number' && teamSize !== (room.teamSize ?? 2)) ||
+      (itemsFree !== (room.itemsFree ?? false))
     );
-  }, [roundDuration, totalRounds, teamCount, teamSize, room.roundDuration, room.totalRounds, room.teamCount, room.teamSize, unlimited]);
+  }, [roundDuration, totalRounds, teamCount, teamSize, room.roundDuration, room.totalRounds, room.teamCount, room.teamSize, unlimited, itemsFree, room.itemsFree]);
 
   const handleSave = () => {
     setError(undefined);
@@ -71,7 +74,8 @@ export default function LobbySettings({ room }: Props) {
   else if (typeof roundDuration === 'number') payload.roundDuration = roundDuration;
     if (typeof totalRounds === 'number') payload.totalRounds = totalRounds;
     if (typeof teamCount === 'number') payload.teamCount = teamCount;
-    if (typeof teamSize === 'number') payload.teamSize = teamSize;
+  if (typeof teamSize === 'number') payload.teamSize = teamSize;
+  payload.itemsFree = itemsFree;
 
     getSocket().emit('room:update', payload);
     setTimeout(() => setLoading(false), 300); // optimiste
@@ -172,6 +176,14 @@ export default function LobbySettings({ room }: Props) {
             max={12}
             value={teamSize}
             onChange={(v) => setTeamSize(typeof v === 'number' ? v : '')}
+            disabled={!isHost}
+          />
+        </Group>
+        <Group>
+          <Checkbox
+            label="Items gratuits"
+            checked={itemsFree}
+            onChange={(e) => setItemsFree(e.currentTarget.checked)}
             disabled={!isHost}
           />
         </Group>

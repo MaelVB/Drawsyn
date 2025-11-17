@@ -50,6 +50,8 @@ export interface RoomState {
   hostId?: string; // ID du joueur hôte (celui qui peut configurer et lancer la partie)
   // Visibilité de la salle (public par défaut). Si true, la salle n'apparaît pas dans la liste publique.
   isPrivate?: boolean;
+  // Si vrai, l'achat des items ne coûte aucun point (utilisé pour les parties fun / tests)
+  itemsFree?: boolean;
   // ===================== Équipes =====================
   // Nombre d'équipes (2..6 typiquement). Si non défini, le mode équipe est désactivé
   teamCount?: number;

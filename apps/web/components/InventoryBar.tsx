@@ -108,6 +108,7 @@ export default function InventoryBar({
   const player = useMemo(() => (playerId && currentRoom ? currentRoom.players[playerId] : undefined), [currentRoom, playerId]);
   const inventory = player?.inventory ?? [];
   const score = player?.score ?? 0;
+  const itemsAreFree = currentRoom?.itemsFree === true;
   const targetablePlayers = useMemo(() => {
     if (!currentRoom || !playerId) return 0;
     return Object.values(currentRoom.players || {}).filter((p: PlayerState) => p.id !== playerId && p.connected).length;
@@ -139,7 +140,7 @@ export default function InventoryBar({
   // La barre est visible quand: pas compact OU (compact mais survolé)
   const shouldShowFull = !isCompact || isHovered;
 
-  const buyDisabled = (cost: number) => score < cost;
+  const buyDisabled = (cost: number) => (itemsAreFree ? false : score < cost);
 
   const MAX_ITEMS = 7;
   const isInventoryFull = inventory.length >= MAX_ITEMS;
@@ -177,7 +178,7 @@ export default function InventoryBar({
     if (item) {
       notifications.show({
         title: 'Achat réussi',
-        message: `Vous avez acheté ${item.name} pour ${item.cost} pts`,
+        message: `Vous avez acheté ${item.name} pour ${itemsAreFree ? 0 : item.cost} pts`,
         color: 'green',
         position: 'bottom-right',
         autoClose: 3000,
@@ -234,7 +235,7 @@ export default function InventoryBar({
                   <div>
                     <div style={{ fontWeight: 700 }}>{item.name}</div>
                     <div style={{ fontSize: 12, opacity: 0.8 }}>{item.description}</div>
-                    <div style={{ fontSize: 12, opacity: 0.9, marginTop: 4 }}>{item.cost} pts</div>
+                    <div style={{ fontSize: 12, opacity: 0.9, marginTop: 4 }}>{itemsAreFree ? 0 : item.cost} pts</div>
                   </div>
                 }
                 position="top"
@@ -290,7 +291,7 @@ export default function InventoryBar({
                     }}
                   >
                     {getItemIcon(item.id, 28)}
-                    <div style={{ fontSize: 10, opacity: 0.8 }}>{item.cost} pts</div>
+                    <div style={{ fontSize: 10, opacity: 0.8 }}>{itemsAreFree ? 0 : item.cost} pts</div>
                   </Box>
                 </UnstyledButton>
               </Tooltip>
@@ -328,12 +329,14 @@ export default function InventoryBar({
               activeTargetCategory === 'visual' ? 'var(--mantine-color-pink-5)'
               : activeTargetCategory === 'support' ? 'var(--mantine-color-green-5)'
               : activeTargetCategory === 'block' ? 'var(--mantine-color-yellow-5)'
+              : activeTargetCategory === 'drawing' ? 'var(--mantine-color-orange-5)'
               : 'var(--mantine-color-blue-5)'
             }`,
             boxShadow: `${
               activeTargetCategory === 'visual' ? '0 0 28px rgba(255, 120, 203, 0.35)'
               : activeTargetCategory === 'support' ? '0 0 28px rgba(34, 197, 94, 0.35)'
               : activeTargetCategory === 'block' ? '0 0 28px rgba(250, 204, 21, 0.35)'
+              : activeTargetCategory === 'drawing' ? '0 0 28px rgba(255, 146, 43, 0.35)'
               : '0 0 28px rgba(76, 110, 245, 0.35)'
             }`,
             display: 'flex',
@@ -349,6 +352,7 @@ export default function InventoryBar({
               const color = activeTargetCategory === 'visual' ? 'var(--mantine-color-pink-4)'
                 : activeTargetCategory === 'support' ? 'var(--mantine-color-green-4)'
                 : activeTargetCategory === 'block' ? 'var(--mantine-color-yellow-4)'
+                : activeTargetCategory === 'drawing' ? 'var(--mantine-color-orange-4)'
                 : 'var(--mantine-color-blue-4)';
               // Icône générique selon la catégorie (on privilégie l'icône de confettis/TV si connu via item lui-même, mais ici on reste générique)
               // On affiche simplement une pastille colorée via un carré
@@ -432,6 +436,8 @@ export default function InventoryBar({
               ? 'var(--mantine-color-green-5)'
               : activeTargetCategory === 'block'
               ? 'var(--mantine-color-yellow-5)'
+              : activeTargetCategory === 'drawing'
+              ? 'var(--mantine-color-orange-5)'
               : 'var(--mantine-color-blue-5)';
             const content = item ? (
               <Box style={{ 
