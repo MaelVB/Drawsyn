@@ -20,7 +20,7 @@ export const ITEMS: Record<ItemId, GameItemDef> = {
   paralysis: {
     id: 'paralysis',
     name: 'Paralysie',
-    description: 'Empêche une personne d\'écrire dans le tchat pendant 20s.',
+    description: 'Empêche une personne d\'écrire dans le tchat pendant 10s.',
     cost: 75,
     category: 'block',
     requiresTarget: true

@@ -35,6 +35,8 @@ interface InventoryBarProps {
   onRequestImprovisation?: (instanceId: string) => void;
   // Ciblage générique d'un item qui nécessite une cible
   onRequestTargeting?: (payload: { instanceId: string; itemId: string; category: ItemCategory }) => void;
+  // Confirmation d'utilisation pour les items sans cible
+  onRequestConfirmUse?: (payload: { instanceId: string; itemId: string }) => void;
   isTargeting?: boolean;
   activeTargetInstanceId?: string | null;
   activeTargetCategory?: ItemCategory;
@@ -86,6 +88,7 @@ function getItemIcon(itemId: string, size: number = 24) {
 export default function InventoryBar({
   onRequestImprovisation,
   onRequestTargeting,
+  onRequestConfirmUse,
   isTargeting,
   activeTargetInstanceId,
   activeTargetCategory,
@@ -149,6 +152,10 @@ export default function InventoryBar({
     switch (item.itemId) {
       case 'improvisation':
         return isDrawer && currentRoom?.status === 'choosing';
+      case 'early_bird':
+        return Boolean(currentRoom?.round && currentRoom.status === 'running' && !isDrawer);
+      case 'unsolicited_help':
+        return Boolean(currentRoom?.round && currentRoom.status === 'running' && !isDrawer);
       default: {
         const def = itemsCatalog.find((x) => x.id === item.itemId);
         if (def?.requiresTarget) return canUseTargeted;
@@ -161,6 +168,14 @@ export default function InventoryBar({
     switch (item.itemId) {
       case 'improvisation':
         return "Non utilisable maintenant";
+      case 'early_bird':
+        return currentRoom?.round && currentRoom.status === 'running' && !isDrawer
+          ? undefined
+          : "Non utilisable maintenant";
+      case 'unsolicited_help':
+        return currentRoom?.round && currentRoom.status === 'running' && !isDrawer
+          ? undefined
+          : "Non utilisable maintenant";
       default: {
         const def = itemsCatalog.find((x) => x.id === item.itemId);
         if (def?.requiresTarget) return canUseTargeted ? undefined : 'Aucun autre joueur connecté';
@@ -193,6 +208,12 @@ export default function InventoryBar({
         // Consommer côté serveur immédiatement pour retirer de l'inventaire
         getSocket().emit('item:init', { instanceId });
         onRequestImprovisation(instanceId);
+      }
+    } else if (itemId === 'early_bird' || itemId === 'unsolicited_help') {
+      if (onRequestConfirmUse) {
+        setIsCompact(false);
+        setIsHovered(false);
+        onRequestConfirmUse({ instanceId, itemId });
       }
     } else {
       const def = itemsCatalog.find((x) => x.id === itemId);
