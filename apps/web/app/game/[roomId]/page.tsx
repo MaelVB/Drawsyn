@@ -101,6 +101,11 @@ export default function GameRoomPage() {
   const [improvWord, setImprovWord] = useState('');
   type ItemCategory = 'visual' | 'support' | 'block' | 'drawing';
   const [itemTargeting, setItemTargeting] = useState<{ instanceId: string; itemId: ItemId; category: ItemCategory } | null>(null);
+  const [pendingItemConfirm, setPendingItemConfirm] = useState<{ instanceId: string; itemId: ItemId } | null>(null);
+  const [earlyBirdReveal, setEarlyBirdReveal] = useState<string | null>(null);
+  const [chatCooldown, setChatCooldown] = useState<number>(0);
+  const [drawAssistUntil, setDrawAssistUntil] = useState<number | null>(null);
+  const [adBreakState, setAdBreakState] = useState<{ open: boolean; until: number; twitchUrl?: string | null } | null>(null);
   // Equipes: suivi local des joueurs dont l'équipe est connue (en plus de la vôtre)
   const [knownTeamPlayerIds, setKnownTeamPlayerIds] = useState<Set<string>>(new Set());
   const startHurry = useEffectsStore((s) => s.startHurry);
@@ -143,7 +148,14 @@ export default function GameRoomPage() {
     }
   }, [primaryNotification]);
 
+  const displayedWord = word ? word : (earlyBirdReveal ?? round?.revealed);
+
   const isDrawer = useMemo(() => round && playerId ? round.drawerId === playerId : false, [round, playerId]);
+  const canDraw = useMemo(() => {
+    if (isDrawer) return true;
+    if (!drawAssistUntil) return false;
+    return drawAssistUntil > Date.now();
+  }, [isDrawer, drawAssistUntil]);
   // Team du joueur courant
   const viewerTeamId = useMemo(() => {
     if (!currentRoom || !playerId) return undefined;
@@ -277,6 +289,10 @@ export default function GameRoomPage() {
         revealed: payload.revealed
       });
       setWord(undefined);
+      setEarlyBirdReveal(null);
+      setDrawAssistUntil(null);
+      setChatCooldown(0);
+      setAdBreakState(null);
       // Fermer la modal de choix si ouverte (ex: usage d'Improvisation)
       setWordChoices(null);
       setImprovInstanceId(null);
@@ -313,6 +329,10 @@ export default function GameRoomPage() {
       }
       setRound(undefined);
       setWord(undefined);
+      setEarlyBirdReveal(null);
+      setDrawAssistUntil(null);
+      setChatCooldown(0);
+      setAdBreakState(null);
       stopHurry();
       if (payload.room) {
         setCurrentRoom(payload.room);
@@ -499,6 +519,57 @@ export default function GameRoomPage() {
       });
     };
 
+    const handleEffectEarlyBird = (payload: { revealed: string }) => {
+      setEarlyBirdReveal(payload.revealed);
+      notifications.show({
+        title: 'En avance',
+        message: 'Une lettre a été révélée pour vous.',
+        color: 'teal',
+        position: 'bottom-right',
+        autoClose: 2600
+      });
+    };
+
+    const handleEffectParalysis = (payload: { durationMs?: number; fromPlayerId?: string }) => {
+      const duration = Math.ceil((payload.durationMs ?? 10000) / 1000);
+      setChatCooldown(duration);
+      const state = useGameStore.getState();
+      const actor = payload.fromPlayerId ? state.currentRoom?.players[payload.fromPlayerId]?.name : undefined;
+      notifications.show({
+        title: 'Paralysie',
+        message: actor ? `${actor} a bloqué votre tchat pendant ${duration}s.` : `Tchat bloqué pendant ${duration}s.`,
+        color: 'yellow',
+        position: 'bottom-right',
+        autoClose: 3200
+      });
+    };
+
+    const handleEffectUnsolicitedHelp = (payload: { durationMs?: number }) => {
+      const until = Date.now() + (payload.durationMs ?? 15000);
+      setDrawAssistUntil(until);
+      notifications.show({
+        title: 'Aide non sollicitée',
+        message: 'Vous pouvez dessiner temporairement !',
+        color: 'orange',
+        position: 'bottom-right',
+        autoClose: 3200
+      });
+    };
+
+    const handleEffectAdBreak = (payload: { durationMs?: number; twitchUrl?: string | null; fromPlayerId?: string }) => {
+      const until = Date.now() + (payload.durationMs ?? 10000);
+      setAdBreakState({ open: true, until, twitchUrl: payload.twitchUrl });
+      const state = useGameStore.getState();
+      const actor = payload.fromPlayerId ? state.currentRoom?.players[payload.fromPlayerId]?.name : undefined;
+      notifications.show({
+        title: 'Page de pub',
+        message: actor ? `${actor} vous envoie une publicité.` : 'Une publicité est affichée.',
+        color: 'grape',
+        position: 'bottom-right',
+        autoClose: 2800
+      });
+    };
+
     const handleAuthError = (payload: { message?: string }) => {
       console.error('[GameRoom] ⚠️ Erreur d\'authentification reçue:', payload);
       
@@ -620,6 +691,10 @@ export default function GameRoomPage() {
   socket.on('teams:revealed', handleTeamsRevealed);
   socket.on('effect:party-time', handleEffectPartyTime);
   socket.on('effect:crt', handleEffectCrt);
+    socket.on('effect:early-bird', handleEffectEarlyBird);
+    socket.on('effect:paralysis', handleEffectParalysis);
+    socket.on('effect:unsolicited-help', handleEffectUnsolicitedHelp);
+    socket.on('effect:ad-break', handleEffectAdBreak);
 
     // Si le socket est déjà connecté au moment du montage
     console.log('[GameRoom] 🔍 Vérification état socket:', {
@@ -665,6 +740,10 @@ export default function GameRoomPage() {
   socket.off('teams:revealed', handleTeamsRevealed);
   socket.off('effect:party-time', handleEffectPartyTime);
   socket.off('effect:crt', handleEffectCrt);
+      socket.off('effect:early-bird', handleEffectEarlyBird);
+      socket.off('effect:paralysis', handleEffectParalysis);
+      socket.off('effect:unsolicited-help', handleEffectUnsolicitedHelp);
+      socket.off('effect:ad-break', handleEffectAdBreak);
       hasJoinedRoomRef.current = false;
     };
   }, [clearAuth, clearCanvas, drawPoints, roomId, router, setCurrentRoom, setPlayerId, setRound, user, hydrated, isJoiningRoom, startPartyEffect, startCrtEffect, playerId]);
@@ -687,8 +766,32 @@ export default function GameRoomPage() {
     setKnownTeamPlayerIds(initial);
   }, [currentRoom, playerId]);
 
+  useEffect(() => {
+    if (chatCooldown <= 0) return;
+    const interval = setInterval(() => {
+      setChatCooldown((value) => Math.max(0, value - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [chatCooldown]);
+
+  useEffect(() => {
+    if (!adBreakState?.open) return;
+    const tick = setInterval(() => {
+      setAdBreakState((state) => {
+        if (!state) return null;
+        if (state.until <= Date.now()) return null;
+        return state;
+      });
+    }, 500);
+    const timeout = setTimeout(() => setAdBreakState(null), Math.max(0, (adBreakState.until ?? Date.now()) - Date.now()));
+    return () => {
+      clearInterval(tick);
+      clearTimeout(timeout);
+    };
+  }, [adBreakState]);
+
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDrawer) return;
+    if (!canDraw) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const scaleX = event.currentTarget.width / rect.width;
     const scaleY = event.currentTarget.height / rect.height;
@@ -719,7 +822,7 @@ export default function GameRoomPage() {
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDrawer) return;
+    if (!canDraw) return;
     const rect = event.currentTarget.getBoundingClientRect();
     // Toujours mettre à jour la position du curseur (non scalée) tant que l'utilisateur est dessinateur
     if (brushType !== 'bucket') {
@@ -755,7 +858,7 @@ export default function GameRoomPage() {
   };
 
   const handlePointerUp = () => {
-    if (!isDrawer) return;
+    if (!canDraw) return;
     // Masque le curseur personnalisé quand le pointeur quitte / relâche (sera réaffiché au prochain mouvement)
     setCursorPos((prev) => ({ ...prev, visible: false }));
     if (currentStroke.current.length === 0 || !roomId) return;
@@ -797,6 +900,25 @@ export default function GameRoomPage() {
     setItemTargeting(null);
   }, []);
 
+  const handleConfirmItemUse = useCallback(() => {
+    if (!pendingItemConfirm) return;
+    const socket = getSocket();
+    socket.emit('item:use', { instanceId: pendingItemConfirm.instanceId });
+    const label = pendingItemConfirm.itemId === 'early_bird'
+      ? 'En avance'
+      : 'Aide non sollicitée';
+    notifications.show({
+      title: label,
+      message: 'Item utilisé.',
+      color: 'teal',
+      position: 'bottom-right',
+      autoClose: 2500
+    });
+    setPendingItemConfirm(null);
+  }, [pendingItemConfirm]);
+
+  const handleCancelConfirm = useCallback(() => setPendingItemConfirm(null), []);
+
   const handleTargetClick = useCallback((target: PlayerState) => {
     if (!itemTargeting) return;
     if (!playerId) {
@@ -833,7 +955,7 @@ export default function GameRoomPage() {
 
     const socket = getSocket();
     const { instanceId, itemId, category } = itemTargeting;
-    if (itemId === 'party_time' || itemId === 'crt') {
+    if (itemId === 'party_time' || itemId === 'crt' || itemId === 'paralysis' || itemId === 'ad_break' || itemId === 'spy') {
       socket.emit('item:use', { instanceId, params: { targetId: target.id } });
       notifications.show({
         title: 'Item',
@@ -1374,14 +1496,14 @@ export default function GameRoomPage() {
                   </Text>
 
                   {/* Centre: Mot à deviner, reste parfaitement centré */}
-                  {(word || round?.revealed) && (
+                  {displayedWord && (
                     <Text
                       size="24px"
                       fw={700}
                       ta="center"
                       style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', letterSpacing: '0.2em', whiteSpace: 'nowrap' }}
                     >
-                      {word ? `${word}` : round?.revealed}
+                      {displayedWord}
                     </Text>
                   )}
 
@@ -1403,7 +1525,7 @@ export default function GameRoomPage() {
                     style={{
                       touchAction: 'none',
                       borderRadius: 12,
-                      cursor: isDrawer ? (brushType === 'bucket' ? 'pointer' : 'none') : 'default',
+                      cursor: canDraw ? (brushType === 'bucket' ? 'pointer' : 'none') : 'default',
                       backgroundColor: '#808080'
                     }}
                     onPointerDown={handlePointerDown}
@@ -1413,7 +1535,7 @@ export default function GameRoomPage() {
                     onPointerCancel={handlePointerUp}
                   />
                   <CrtOverlay />
-                  {isDrawer && cursorPos.visible && brushType !== 'bucket' && (
+                  {canDraw && cursorPos.visible && brushType !== 'bucket' && (
                     <div
                       style={{
                         position: 'absolute',
@@ -1443,7 +1565,7 @@ export default function GameRoomPage() {
                   )}
                 </Box>
               </Card>
-              {isDrawer && (
+              {canDraw && (
                 <Card withBorder padding="md" radius="md">
                   <Flex justify="center" gap="xl">
                     <Box>
@@ -1826,22 +1948,30 @@ export default function GameRoomPage() {
             ))}
           </Stack>
           <Group mt="md" gap="xs">
-            <TextInput
-              value={guessText}
-              onChange={(event) => setGuessText(event.currentTarget.value)}
-              placeholder={round ? 'Votre proposition' : 'Message (la partie n\'a pas commencé)'}
-              flex={1}
-              disabled={isDrawer || !round}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && round) {
-                  event.preventDefault();
-                  handleSubmitGuess();
-                }
-              }}
-            />
-            <Button onClick={handleSubmitGuess} disabled={isDrawer || !guessText.trim() || !round}>
-              Envoyer
-            </Button>
+            {chatCooldown > 0 ? (
+              <Paper withBorder p="sm" radius="md" style={{ flex: 1, textAlign: 'center' }}>
+                <Text fw={600}>Tchat bloqué : {chatCooldown}s</Text>
+              </Paper>
+            ) : (
+              <>
+                <TextInput
+                  value={guessText}
+                  onChange={(event) => setGuessText(event.currentTarget.value)}
+                  placeholder={round ? 'Votre proposition' : 'Message (la partie n\'a pas commencé)'}
+                  flex={1}
+                  disabled={canDraw || !round}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && round) {
+                      event.preventDefault();
+                      handleSubmitGuess();
+                    }
+                  }}
+                />
+                <Button onClick={handleSubmitGuess} disabled={canDraw || !guessText.trim() || !round}>
+                  Envoyer
+                </Button>
+              </>
+            )}
           </Group>
         </Card>
       </Group>
@@ -1877,7 +2007,39 @@ export default function GameRoomPage() {
       )}
     </Stack>
       )}
-      
+
+      <Modal
+        opened={!!pendingItemConfirm}
+        onClose={handleCancelConfirm}
+        title={pendingItemConfirm?.itemId === 'early_bird' ? "Utiliser 'En avance'" : "Utiliser 'Aide non sollicitée'"}
+      >
+        <Stack>
+          <Text>
+            {pendingItemConfirm?.itemId === 'early_bird'
+              ? 'Révèle instantanément une lettre du mot pour vous. Confirmez-vous ?'
+              : 'Vous pourrez dessiner pendant 15 secondes en plus du dessinateur actuel.'}
+          </Text>
+          <Group justify="flex-end">
+            <Button variant="default" onClick={handleCancelConfirm}>Annuler</Button>
+            <Button onClick={handleConfirmItemUse} color="teal">Confirmer</Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      {adBreakState?.open && (
+        <Modal opened={true} onClose={() => setAdBreakState(null)} withCloseButton={false} centered>
+          <Stack align="center" gap="sm">
+            <Title order={3}>Page de pub</Title>
+            {adBreakState.twitchUrl ? (
+              <Text size="sm">Regardez le stream : {adBreakState.twitchUrl}</Text>
+            ) : (
+              <Text size="sm">Une publicité s'affiche pendant quelques secondes...</Text>
+            )}
+            <Text c="dimmed" size="sm">Fermeture automatique à la fin du compte à rebours.</Text>
+          </Stack>
+        </Modal>
+      )}
+
       {/* Barre d'inventaire fixe en bas */}
       <InventoryBar
         onRequestImprovisation={(instanceId) => {
@@ -1888,6 +2050,7 @@ export default function GameRoomPage() {
           }
         }}
         onRequestTargeting={(payload) => handleBeginTargeting(payload as any)}
+        onRequestConfirmUse={(payload) => setPendingItemConfirm(payload)}
         isTargeting={!!itemTargeting}
         activeTargetInstanceId={itemTargeting?.instanceId ?? null}
         activeTargetCategory={itemTargeting?.category}

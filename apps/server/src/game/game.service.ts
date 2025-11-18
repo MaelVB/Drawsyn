@@ -31,6 +31,8 @@ export class GameService {
   private readonly words = ['anticonstitutionnellement', 'bibliothèque', 'arc-en-ciel'];
   private server?: Server; // Attaché par le gateway pour pouvoir émettre des events
   private readonly timers = new Map<string, NodeJS.Timeout>();
+  private readonly drawingBuffs = new Map<string, number>();
+  private readonly chatBlocks = new Map<string, number>();
 
   constructor(private readonly lobby: LobbyService, @InjectModel(Game.name) private readonly gameModel: Model<Game>) {}
 
@@ -252,6 +254,21 @@ export class GameService {
       case 'crt':
         this.applyCrt(room, playerId, item, params);
         break;
+      case 'early_bird':
+        this.applyEarlyBird(room, playerId, item);
+        break;
+      case 'paralysis':
+        this.applyParalysis(room, playerId, item, params);
+        break;
+      case 'unsolicited_help':
+        this.applyUnsolicitedHelp(room, playerId, item);
+        break;
+      case 'ad_break':
+        this.applyAdBreak(room, playerId, item, params);
+        break;
+      case 'spy':
+        this.applySpy(room, playerId, item, params);
+        break;
       default:
         throw new Error('Item non pris en charge');
     }
@@ -377,6 +394,126 @@ export class GameService {
     });
   }
 
+  private applyEarlyBird(room: RoomState, playerId: string, item: PlayerItem) {
+    if (!room.round) throw new Error('Aucune manche en cours');
+    this.consumePlayerItem(room, playerId, item);
+
+    const word = room.round.word;
+    const revealedIndices = [...(room.round.revealedIndices ?? [])];
+    const hiddenIndices = Array.from({ length: word.length }, (_, i) => i).filter((idx) => !revealedIndices.includes(idx));
+    if (hiddenIndices.length > 0) {
+      const randomIndex = hiddenIndices[Math.floor(Math.random() * hiddenIndices.length)];
+      revealedIndices.push(randomIndex);
+    }
+    const revealed = this.buildRevealedString(word, revealedIndices);
+
+    room.lastActivityAt = Date.now();
+    this.lobby.upsertRoom(room);
+
+    this.emitToRoom(room.id, 'room:state', {
+      ...room,
+      connectedPlayers: Object.values(room.players).filter(p => p.connected).length,
+      totalPlayers: Object.keys(room.players).length
+    });
+
+    this.emitToRoom(room.id, 'item:used', { itemId: 'early_bird', playerId });
+    this.emitToPlayer(playerId, 'effect:early-bird', { revealed });
+  }
+
+  private applyParalysis(room: RoomState, playerId: string, item: PlayerItem, params?: { targetId?: string }) {
+    const targetId = params?.targetId;
+    if (!targetId) throw new Error('Aucun joueur ciblé');
+    if (targetId === playerId) throw new Error('Cible invalide');
+    const target = room.players[targetId];
+    if (!target) throw new Error('Joueur cible introuvable');
+    if (!target.connected) throw new Error('Le joueur ciblé est déconnecté');
+
+    this.consumePlayerItem(room, playerId, item);
+    const key = `${room.id}:${targetId}`;
+    const durationMs = 10000;
+    this.chatBlocks.set(key, Date.now() + durationMs);
+
+    room.lastActivityAt = Date.now();
+    this.lobby.upsertRoom(room);
+    this.emitToRoom(room.id, 'room:state', {
+      ...room,
+      connectedPlayers: Object.values(room.players).filter(p => p.connected).length,
+      totalPlayers: Object.keys(room.players).length
+    });
+
+    this.emitToRoom(room.id, 'item:used', { itemId: 'paralysis', playerId, targetId });
+    this.emitToPlayer(targetId, 'effect:paralysis', { durationMs, fromPlayerId: playerId });
+  }
+
+  private applyUnsolicitedHelp(room: RoomState, playerId: string, item: PlayerItem) {
+    if (!room.round) throw new Error('Aucune manche en cours');
+    if (room.round.drawerId === playerId) throw new Error('Le dessinateur ne peut pas utiliser cet item');
+
+    this.consumePlayerItem(room, playerId, item);
+    const durationMs = 15000;
+    const key = `${room.id}:${playerId}`;
+    this.drawingBuffs.set(key, Date.now() + durationMs);
+
+    room.lastActivityAt = Date.now();
+    this.lobby.upsertRoom(room);
+    this.emitToRoom(room.id, 'room:state', {
+      ...room,
+      connectedPlayers: Object.values(room.players).filter(p => p.connected).length,
+      totalPlayers: Object.keys(room.players).length
+    });
+
+    this.emitToRoom(room.id, 'item:used', { itemId: 'unsolicited_help', playerId });
+    this.emitToPlayer(playerId, 'effect:unsolicited-help', { durationMs });
+  }
+
+  private applyAdBreak(room: RoomState, playerId: string, item: PlayerItem, params?: { targetId?: string }) {
+    const targetId = params?.targetId;
+    if (!targetId) throw new Error('Aucun joueur ciblé');
+    if (targetId === playerId) throw new Error('Cible invalide');
+    const target = room.players[targetId];
+    if (!target) throw new Error('Joueur cible introuvable');
+    if (!target.connected) throw new Error('Le joueur ciblé est déconnecté');
+
+    this.consumePlayerItem(room, playerId, item);
+    const durationMs = 10000;
+
+    room.lastActivityAt = Date.now();
+    this.lobby.upsertRoom(room);
+    this.emitToRoom(room.id, 'room:state', {
+      ...room,
+      connectedPlayers: Object.values(room.players).filter(p => p.connected).length,
+      totalPlayers: Object.keys(room.players).length
+    });
+
+    this.emitToRoom(room.id, 'item:used', { itemId: 'ad_break', playerId, targetId });
+    this.emitToPlayer(targetId, 'effect:ad-break', { durationMs, twitchUrl: target.twitchUrl ?? null, fromPlayerId: playerId });
+  }
+
+  private applySpy(room: RoomState, playerId: string, item: PlayerItem, params?: { targetId?: string }) {
+    const targetId = params?.targetId;
+    if (!targetId) throw new Error('Aucun joueur ciblé');
+    if (targetId === playerId) throw new Error('Cible invalide');
+    const target = room.players[targetId];
+    if (!target) throw new Error('Joueur cible introuvable');
+    if (!target.teamId) throw new Error('Ce joueur ne fait partie d\'aucune équipe');
+
+    const sameTeamPlayers = Object.values(room.players)
+      .filter((p) => p.teamId === target.teamId)
+      .map((p) => p.id);
+
+    this.consumePlayerItem(room, playerId, item);
+    room.lastActivityAt = Date.now();
+    this.lobby.upsertRoom(room);
+    this.emitToRoom(room.id, 'room:state', {
+      ...room,
+      connectedPlayers: Object.values(room.players).filter(p => p.connected).length,
+      totalPlayers: Object.keys(room.players).length
+    });
+
+    this.emitToRoom(room.id, 'item:used', { itemId: 'spy', playerId, targetId });
+    this.emitToPlayer(playerId, 'teams:revealed', { playerIds: sameTeamPlayers });
+  }
+
   initiateImprovisation(roomId: string, playerId: string, instanceId: string) {
     const room = this.lobby.getRoom(roomId);
     if (!room) throw new Error('Room not found');
@@ -480,7 +617,19 @@ export class GameService {
 
   canDraw(playerId: string, roomId: string): boolean {
     const room = this.lobby.getRoom(roomId);
-    return Boolean(room?.round && room.round.drawerId === playerId);
+    if (!room?.round) return false;
+
+    if (room.round.drawerId === playerId) return true;
+
+    const key = `${room.id}:${playerId}`;
+    const expiresAt = this.drawingBuffs.get(key);
+    if (expiresAt && expiresAt > Date.now()) {
+      return true;
+    }
+    if (expiresAt && expiresAt <= Date.now()) {
+      this.drawingBuffs.delete(key);
+    }
+    return false;
   }
 
   updateRoomActivity(roomId: string): void {
@@ -495,6 +644,14 @@ export class GameService {
     const room = this.lobby.getRoom(dto.roomId);
     if (!room || !room.round) {
       return { correct: false, room: undefined };
+    }
+    const blockKey = `${room.id}:${playerId}`;
+    const blockedUntil = this.chatBlocks.get(blockKey);
+    if (blockedUntil && blockedUntil > Date.now()) {
+      return { correct: false, room };
+    }
+    if (blockedUntil && blockedUntil <= Date.now()) {
+      this.chatBlocks.delete(blockKey);
     }
     room.lastActivityAt = Date.now();
     const normalized = dto.text.trim().toLowerCase();

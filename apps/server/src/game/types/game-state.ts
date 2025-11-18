@@ -10,6 +10,8 @@ export interface PlayerState {
   inventory?: PlayerItem[];
   // Équipe du joueur (assignée au démarrage si le mode équipe est activé)
   teamId?: string;
+  // URL Twitch publique (facultative)
+  twitchUrl?: string | null;
 }
 
 export interface RoundState {
