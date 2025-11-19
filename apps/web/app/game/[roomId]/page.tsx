@@ -1399,7 +1399,7 @@ export default function GameRoomPage() {
             {currentRoom?.connectedPlayers ?? 0} / {currentRoom?.maxPlayers ?? 0} connectés
           </Text>
           <Divider my="md" />
-          <Stack gap={8} mt="sm">
+          <Stack gap={8}>
             {currentRoom?.players &&
               Object.values(currentRoom.players).map((player: PlayerState) => {
                 const orderNumber = currentRoom.drawerOrder 
@@ -1429,7 +1429,13 @@ export default function GameRoomPage() {
                   <Stack key={player.id} gap="0px" align="center">
                     <Paper
                       bg={altMessageBg}
-                      p="xs"
+                      p={(() => {
+                        const count = Object.keys(currentRoom?.players ?? {}).length;
+                        if (count >= 1 && count <= 4) return '10px';
+                        if (count >= 5 && count <= 6) return '8px';
+                        if (count > 6) return '4px';
+                        return '8px';
+                      })()}
                       radius="md"
                       w="100%"
                       withBorder
@@ -1489,6 +1495,7 @@ export default function GameRoomPage() {
                       bg={altMessageBg}
                       p="6px"
                       w="90%"
+                      mb="6px"
                       styles={{
                         root: {
                           borderTopLeftRadius: 0,
