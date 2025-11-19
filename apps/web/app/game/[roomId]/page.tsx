@@ -26,7 +26,7 @@ import {
   useComputedColorScheme
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconInfoCircle, IconBrush, IconEraser, IconBucket } from '@tabler/icons-react';
+import { IconInfoCircle, IconBrush, IconEraser, IconBucket, IconConfetti, IconDeviceTv, IconEye, IconMessageOff, IconPencil, IconAd } from '@tabler/icons-react';
 import LobbySettings from '@/components/LobbySettings';
 import InventoryBar from '@/components/InventoryBar';
 import CrtOverlay from '@/components/CrtOverlay';
@@ -108,6 +108,16 @@ export default function GameRoomPage() {
   const [adBreakState, setAdBreakState] = useState<{ open: boolean; until: number; twitchUrl?: string | null } | null>(null);
   // Equipes: suivi local des joueurs dont l'équipe est connue (en plus de la vôtre)
   const [knownTeamPlayerIds, setKnownTeamPlayerIds] = useState<Set<string>>(new Set());
+  
+  // Effets actifs sur les joueurs
+  interface ActiveEffect {
+    effectId: string;
+    icon: React.ReactNode;
+    expiresAt: number;
+    color: string;
+  }
+  const [playerEffects, setPlayerEffects] = useState<Record<string, ActiveEffect[]>>({});
+  
   const startHurry = useEffectsStore((s) => s.startHurry);
   const stopHurry = useEffectsStore((s) => s.stopHurry);
   const startPartyEffect = useEffectsStore((s) => s.startPartyEffect);
@@ -333,6 +343,8 @@ export default function GameRoomPage() {
       setDrawAssistUntil(null);
       setChatCooldown(0);
       setAdBreakState(null);
+      // Nettoyer tous les effets à la fin du round
+      setPlayerEffects({});
       stopHurry();
       if (payload.room) {
         setCurrentRoom(payload.room);
@@ -462,6 +474,34 @@ export default function GameRoomPage() {
           text: message
         }
       ]);
+
+      // Ajouter l'icône d'effet visible par tous les joueurs
+      const targetPlayerId = payload.targetId || payload.playerId;
+      
+      // Mapper les items aux effets visuels
+      const effectMapping: Record<string, { icon: React.ReactNode; color: string; duration: number }> = {
+        'party_time': { icon: <IconConfetti size={14} />, color: 'pink', duration: 10000 },
+        'crt': { icon: <IconDeviceTv size={14} />, color: 'cyan', duration: 15000 },
+        'early_bird': { icon: <IconEye size={14} />, color: 'teal', duration: 3000 },
+        'paralysis': { icon: <IconMessageOff size={14} />, color: 'yellow', duration: 10000 },
+        'unsolicited_help': { icon: <IconPencil size={14} />, color: 'orange', duration: 15000 },
+        'ad_break': { icon: <IconAd size={14} />, color: 'grape', duration: 10000 }
+      };
+
+      const effectConfig = effectMapping[payload.itemId];
+      if (effectConfig && targetPlayerId) {
+        setPlayerEffects((prev) => {
+          const existing = prev[targetPlayerId] || [];
+          const newEffect: ActiveEffect = {
+            effectId: `${payload.itemId}-${Date.now()}`,
+            icon: effectConfig.icon,
+            expiresAt: Date.now() + effectConfig.duration,
+            color: effectConfig.color
+          };
+          const updated = [...existing, newEffect].slice(-5);
+          return { ...prev, [targetPlayerId]: updated };
+        });
+      }
     };
 
     // Révélation d'équipes: le serveur peut envoyer une liste de joueurs ou un teamId entier
@@ -765,6 +805,32 @@ export default function GameRoomPage() {
     });
     setKnownTeamPlayerIds(initial);
   }, [currentRoom, playerId]);
+
+  // Nettoyer les effets expirés
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setPlayerEffects((prev) => {
+        const updated = { ...prev };
+        let hasChanges = false;
+        
+        for (const playerId in updated) {
+          const filtered = updated[playerId].filter(effect => effect.expiresAt > now);
+          if (filtered.length !== updated[playerId].length) {
+            hasChanges = true;
+            if (filtered.length === 0) {
+              delete updated[playerId];
+            } else {
+              updated[playerId] = filtered;
+            }
+          }
+        }
+        
+        return hasChanges ? updated : prev;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (chatCooldown <= 0) return;
@@ -1466,7 +1532,24 @@ export default function GameRoomPage() {
                           })()}
                         </Group>
                         <Group gap={4} align="center">
-                          {/* TODO : Afficher les effets qui ont été donnés à ce joueur avec les icones des effets */}
+                          {/* Afficher jusqu'à 5 icônes d'effets actifs */}
+                          {(playerEffects[player.id] || []).slice(0, 5).map((effect) => (
+                            <Tooltip key={effect.effectId} label={`Effet actif`} position="top" withArrow>
+                              <Badge
+                                size="sm"
+                                variant="filled"
+                                color={effect.color}
+                                style={{
+                                  padding: '4px 6px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center'
+                                }}
+                              >
+                                {effect.icon}
+                              </Badge>
+                            </Tooltip>
+                          ))}
                         </Group>
                         <Badge variant={'light'} size="sm">
                           {player.score} pts
