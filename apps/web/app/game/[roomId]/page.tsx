@@ -1537,7 +1537,7 @@ export default function GameRoomPage() {
                               <Badge size="sm" variant="light" color="gray" title="Équipe inconnue">?</Badge>
                             );
                           })()}
-                          <Divider orientation="vertical" color='#777777' />
+                          <Divider orientation="vertical" color='#424242' />
                         </Group>
                         <Group gap={4} align="center" flex={1} px={4}>
                           {/* Afficher jusqu'à 5 icônes d'effets actifs */}
@@ -1561,7 +1561,7 @@ export default function GameRoomPage() {
                           ))}
                         </Group>
                         <Group gap={4} align="center">
-                          <Divider orientation="vertical" color='#777777' />
+                          <Divider orientation="vertical" color='#424242' />
                           <Badge variant={'light'} size="sm">
                             {player.score} pts
                           </Badge>
