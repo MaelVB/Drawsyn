@@ -1510,7 +1510,7 @@ export default function GameRoomPage() {
                         },
                       }}
                     >
-                      <Group justify="space-between">
+                      <Flex>
                         <Group gap={4} align="center">
                           {/* Badge d'équipe: T1/T2/... si connu, sinon ? */}
                           {(() => {
@@ -1537,17 +1537,19 @@ export default function GameRoomPage() {
                               <Badge size="sm" variant="light" color="gray" title="Équipe inconnue">?</Badge>
                             );
                           })()}
+                          <Divider orientation="vertical" color='#777777' />
                         </Group>
-                        <Group gap={4} align="center">
+                        <Group gap={4} align="center" flex={1} px={4}>
                           {/* Afficher jusqu'à 5 icônes d'effets actifs */}
-                          {(playerEffects[player.id] || []).slice(0, 5).map((effect) => (
+                          {(playerEffects[player.id] || []).slice(0, 3).map((effect) => (
                             <Tooltip key={effect.effectId} label={`Effet actif`} position="top" withArrow>
                               <Badge
                                 size="sm"
+                                radius="sm"
                                 variant="filled"
                                 color={effect.color}
                                 style={{
-                                  padding: '4px 6px',
+                                  padding: '2px 4px',
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center'
@@ -1558,10 +1560,13 @@ export default function GameRoomPage() {
                             </Tooltip>
                           ))}
                         </Group>
-                        <Badge variant={'light'} size="sm">
-                          {player.score} pts
-                        </Badge>
-                      </Group>
+                        <Group gap={4} align="center">
+                          <Divider orientation="vertical" color='#777777' />
+                          <Badge variant={'light'} size="sm">
+                            {player.score} pts
+                          </Badge>
+                        </Group>
+                      </Flex>
                     </Paper>
                   </Stack>
                 );
