@@ -1177,7 +1177,9 @@ export class GameService {
       currentRound: room.currentRound ?? 1,
       players: Object.values(room.players).map(p => ({ playerId: p.id, pseudo: p.name, score: p.score })),
       drawings: [],
-      messages: []
+      messages: [],
+      // expire dans 24h tant que la partie est en cours
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
     }).then(() => this.logger.log(`Game persisted: ${gameId}`)).catch(e => this.logger.warn(`Persist game failed: ${(e as Error).message}`));
     // Informer clients
     this.emitToRoom(room.id, 'game:info', { gameId });
@@ -1217,13 +1219,33 @@ export class GameService {
 
   // ===================== Dessins =====================
   submitDrawing(roomId: string, playerId: string, payload: { imageData: string; word: string; turnIndex: number }) {
+    this.logger.log(`📸 submitDrawing called - room: ${roomId}, player: ${playerId}, turnIndex: ${payload.turnIndex}`);
     const room = this.lobby.getRoom(roomId);
-    if (!room) throw new Error('Room not found');
-    if (!room.pendingDrawing) throw new Error('Aucun dessin en attente');
-    if (room.pendingDrawing.drawerId !== playerId) throw new Error('Seul le dessinateur peut soumettre le dessin');
-    if (room.pendingDrawing.turnIndex !== payload.turnIndex) throw new Error('turnIndex invalide');
-    if (room.pendingDrawing.word !== payload.word) throw new Error('Mot invalide');
-    if (!payload.imageData.startsWith('data:image/')) throw new Error('Format image invalide');
+    if (!room) {
+      this.logger.warn('submitDrawing - Room not found');
+      throw new Error('Room not found');
+    }
+    if (!room.pendingDrawing) {
+      this.logger.warn('submitDrawing - No pending drawing');
+      throw new Error('Aucun dessin en attente');
+    }
+    this.logger.log(`Pending drawing: drawerId=${room.pendingDrawing.drawerId}, turnIndex=${room.pendingDrawing.turnIndex}, word=${room.pendingDrawing.word}`);
+    if (room.pendingDrawing.drawerId !== playerId) {
+      this.logger.warn(`submitDrawing - Wrong drawer: expected ${room.pendingDrawing.drawerId}, got ${playerId}`);
+      throw new Error('Seul le dessinateur peut soumettre le dessin');
+    }
+    if (room.pendingDrawing.turnIndex !== payload.turnIndex) {
+      this.logger.warn(`submitDrawing - Wrong turnIndex: expected ${room.pendingDrawing.turnIndex}, got ${payload.turnIndex}`);
+      throw new Error('turnIndex invalide');
+    }
+    if (room.pendingDrawing.word !== payload.word) {
+      this.logger.warn(`submitDrawing - Wrong word: expected ${room.pendingDrawing.word}, got ${payload.word}`);
+      throw new Error('Mot invalide');
+    }
+    if (!payload.imageData.startsWith('data:image/')) {
+      this.logger.warn('submitDrawing - Invalid image format');
+      throw new Error('Format image invalide');
+    }
 
     if (!room.drawings) room.drawings = [];
     const exists = room.drawings.find(d => d.turnIndex === payload.turnIndex);
@@ -1334,7 +1356,9 @@ export class GameService {
     const gameId = (room as any).gameId;
     if (!gameId) return;
     try {
-      await this.gameModel.updateOne({ gameId }, { $set: { status: 'ended' } }).exec();
+      const endedAt = new Date();
+      const newExpiry = new Date(endedAt.getTime() + 7 * 24 * 60 * 60 * 1000); // +7 jours
+      await this.gameModel.updateOne({ gameId }, { $set: { status: 'ended', endedAt, expiresAt: newExpiry } }).exec();
       this.logger.log(`Game finalized: ${gameId}`);
     } catch (e) {
       this.logger.warn(`finalizeGame failed: ${(e as Error).message}`);

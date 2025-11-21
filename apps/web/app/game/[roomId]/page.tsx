@@ -31,6 +31,7 @@ import LobbySettings from '@/components/LobbySettings';
 import InventoryBar from '@/components/InventoryBar';
 import CrtOverlay from '@/components/CrtOverlay';
 import Carousel from './Carousel';
+import { getGame, ApiArchivedGame } from '@/lib/api';
 
 import { getSocket } from '@/lib/socket';
 import { register, login, sendPublicFriendRequest } from '@/lib/api';
@@ -93,6 +94,7 @@ export default function GameRoomPage() {
   );
 
   const [word, setWord] = useState<string | undefined>();
+  const [archivedGame, setArchivedGame] = useState<ApiArchivedGame | null>(null);
   const [guesses, setGuesses] = useState<GuessMessage[]>([]);
   const [guessText, setGuessText] = useState('');
   const [error, setError] = useState<string | undefined>();
@@ -315,16 +317,20 @@ export default function GameRoomPage() {
 
     const handleRoundEnded = (payload: any) => {
       // Si nous sommes le dessinateur, capturer le canvas AVANT effacement
-      const wasDrawer = round && playerId && round.drawerId === playerId;
+      // Utiliser payload.drawerId au lieu de round car round peut être undefined
+      const wasDrawer = playerId && payload.drawerId && payload.drawerId === playerId;
+      console.log('[GameRoom] Round ended - Was drawer:', wasDrawer, 'playerId:', playerId, 'drawerId:', payload.drawerId, 'turnIndex:', payload.turnIndex);
       if (wasDrawer && canvasRef.current) {
         try {
           const dataUrl = canvasRef.current.toDataURL('image/png');
+          console.log('[GameRoom] 📸 Capturing drawing - size:', dataUrl.length, 'bytes');
           getSocket().emit('drawing:submit', {
             roomId,
             imageData: dataUrl,
             word: payload.word,
             turnIndex: payload.turnIndex
           });
+          console.log('[GameRoom] ✅ Drawing submitted to server');
         } catch (e) {
           console.error('[GameRoom] Erreur capture dessin:', e);
         }
@@ -428,8 +434,22 @@ export default function GameRoomPage() {
       
       // Si la room n'existe plus, retourner au lobby
       if (payload.message.includes('not found') || payload.message.includes('existe plus')) {
-        console.log('[GameRoom] Room introuvable, retour au lobby');
-        setTimeout(() => router.replace('/'), 2000);
+        console.log('[GameRoom] Room introuvable, tentative de récupération game archivée');
+        // Essayer de récupérer une game archivée si l'identifiant ressemble à un gameId
+        if (roomId && user?.id && token) {
+          getGame(roomId, token)
+            .then((game) => {
+              setArchivedGame(game);
+              setError(undefined);
+              console.log('[GameRoom] ✅ Game archivée chargée');
+            })
+            .catch((e) => {
+              console.warn('[GameRoom] Impossible de charger game archivée:', e.message);
+              setTimeout(() => router.replace('/'), 2000);
+            });
+        } else {
+          setTimeout(() => router.replace('/'), 2000);
+        }
       }
     };
 
@@ -1119,9 +1139,43 @@ export default function GameRoomPage() {
     }
   };
 
-  if (!roomId || !hydrated) {
-    return null;
+  // Affichage pour game archivée sans room live
+  if (archivedGame && (!currentRoom || currentRoom.status !== 'ended')) {
+    return (
+      <Stack p="lg" gap="lg">
+        <Title order={2}>Partie archivée</Title>
+        <Text c="dimmed" size="sm">ID: {archivedGame.gameId} • Status: {archivedGame.status}</Text>
+        {archivedGame.endedAt && (
+          <Text size="sm">Terminée le {new Date(archivedGame.endedAt).toLocaleString()}</Text>
+        )}
+        <Card withBorder padding="md" radius="md">
+          <Title order={3} ta="center" mb="md">🏆 Classement Final</Title>
+          <Group justify="center" gap="lg">
+            {(() => {
+              const teams: Record<string, { score: number; players: string[] }> = {};
+              archivedGame.players.forEach(p => {
+                // Mode solo: pas de team => regrouper par playerId
+                teams[p.playerId] = { score: p.score, players: [p.pseudo] };
+              });
+              const sorted = Object.entries(teams).sort((a,b) => b[1].score - a[1].score);
+              return sorted.map(([id, team], idx) => (
+                <Stack key={id} align="center" gap={2}>
+                  <Badge color={idx === 0 ? 'yellow' : idx === 1 ? 'gray' : 'dark'}>{team.players.join(', ')}</Badge>
+                  <Text fw={700}>{team.score} pts</Text>
+                </Stack>
+              ));
+            })()}
+          </Group>
+        </Card>
+        <Card withBorder padding="md" radius="md">
+          <Title order={3} ta="center" mb="md">Dessins de la partie</Title>
+          <Carousel drawings={archivedGame.drawings.filter(d => !!d.imageData) as any} players={Object.fromEntries(archivedGame.players.map(p => [p.playerId, { id: p.playerId, name: p.pseudo }]))} />
+        </Card>
+        <Button variant="light" onClick={() => router.push('/')}>Retour au lobby</Button>
+      </Stack>
+    );
   }
+  if (!roomId || !hydrated) return null;
 
   return (
     <>
@@ -1340,6 +1394,35 @@ export default function GameRoomPage() {
         <Alert icon={<IconInfoCircle size={16} />} color="red" title="Oops">
           {error}
         </Alert>
+      )}
+
+      {/* Classement des équipes - Affiché en haut quand la partie est terminée */}
+  {(currentRoom?.status === 'ended' || archivedGame) && currentRoom && currentRoom.status === 'ended' && (
+        <Card withBorder padding="md" radius="md" style={{ maxWidth: 900, margin: '0 auto' }}>
+          <Title order={2} mb="md" ta="center">🏆 Classement Final</Title>
+          <Group justify="center" gap="lg">
+            {(() => {
+              // Regrouper les joueurs par équipe et sommer les scores
+              const teams: Record<string, { name: string, score: number, players: string[] }> = {};
+              Object.values(currentRoom.players).forEach(p => {
+                const team = p.teamId || 'solo';
+                if (!teams[team]) teams[team] = { name: team, score: 0, players: [] };
+                teams[team].score += p.score || 0;
+                teams[team].players.push(p.name);
+              });
+              const sortedTeams = Object.entries(teams).sort((a, b) => b[1].score - a[1].score);
+              return sortedTeams.map(([teamId, team], idx) => (
+                <Stack key={teamId} align="center" gap={2}>
+                  <Badge color={idx === 0 ? 'yellow' : idx === 1 ? 'gray' : 'dark'} size="lg">
+                    {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : ''} {team.name}
+                  </Badge>
+                  <Text fw={700} size="lg">{team.score} pts</Text>
+                  <Text size="xs" c="dimmed">{team.players.join(', ')}</Text>
+                </Stack>
+              ));
+            })()}
+          </Group>
+        </Card>
       )}
 
       <Modal
@@ -1574,9 +1657,16 @@ export default function GameRoomPage() {
           </Stack>
         </Card>
 
-        {/* Centre - Zone dynamique: Canvas ou Lobby Settings */}
+        {/* Centre - Zone dynamique: Canvas, Carousel ou Lobby Settings */}
         <Stack gap="sm" style={{ flexShrink: 0 }}>
-          {currentRoom && currentRoom.status !== 'lobby' && currentRoom.status !== 'ended' ? (
+          {currentRoom && currentRoom.status === 'ended' && currentRoom.drawings && currentRoom.drawings.length > 0 ? (
+            /* Affichage du carousel des dessins à la fin */
+            <Card withBorder padding="md" radius="md" ref={centerCardRef}>
+              <Title order={3} mb="md" ta="center">🎨 Dessins de la partie</Title>
+              <Divider my="md" />
+              <Carousel drawings={currentRoom.drawings} players={currentRoom.players} />
+            </Card>
+          ) : currentRoom && currentRoom.status !== 'lobby' && currentRoom.status !== 'ended' ? (
             <>
               <Card withBorder padding="md" radius="md" ref={centerCardRef}>
                 {/* En-tête de manche: mot centré, round à gauche, timer à droite sur la même ligne */}
@@ -2070,62 +2160,6 @@ export default function GameRoomPage() {
           </Group>
         </Card>
       </Group>
-      {/* Résultats fin de partie : structure 3 colonnes + classement + carousel */}
-      {currentRoom?.status === 'ended' && currentRoom.drawings && currentRoom.drawings.length > 0 && (
-        <Stack gap="md">
-          {/* Classement des équipes */}
-          <Card withBorder padding="md" radius="md" style={{ maxWidth: 700, margin: '0 auto' }}>
-            <Title order={2} mb="md" ta="center">Classement des équipes</Title>
-            {/* Classement dynamique par score d'équipe */}
-            <Group justify="center" gap="lg">
-              {(() => {
-                // Regrouper les joueurs par équipe et sommer les scores
-                const teams: Record<string, { name: string, score: number, players: string[] }> = {};
-                Object.values(currentRoom.players).forEach(p => {
-                  const team = p.teamId || 'solo';
-                  if (!teams[team]) teams[team] = { name: team, score: 0, players: [] };
-                  teams[team].score += p.score || 0;
-                  teams[team].players.push(p.name);
-                });
-                const sortedTeams = Object.entries(teams).sort((a, b) => b[1].score - a[1].score);
-                return sortedTeams.map(([teamId, team], idx) => (
-                  <Stack key={teamId} align="center" gap={2}>
-                    <Badge color={idx === 0 ? 'yellow' : idx === 1 ? 'gray' : 'dark'} size="lg">{team.name}</Badge>
-                    <Text fw={700} size="lg">{team.score} pts</Text>
-                    <Text size="xs" c="dimmed">{team.players.join(', ')}</Text>
-                  </Stack>
-                ));
-              })()}
-            </Group>
-          </Card>
-          {/* Structure 3 colonnes : joueurs | dessins (carousel) | chat */}
-          <Group align="flex-start" gap="md" wrap="nowrap" style={{ width: '100%', maxWidth: 1200, margin: '0 auto' }}>
-            {/* Colonne joueurs */}
-            <Card withBorder padding="md" radius="md" style={{ minWidth: 200, flex: '0 0 200px' }}>
-              <Title order={4} mb="sm">Joueurs</Title>
-              <Stack gap={4}>
-                {Object.values(currentRoom.players).map(p => (
-                  <Group key={p.id} gap={6}>
-                    <Badge color={p.connected ? 'teal' : 'gray'}>{p.name}</Badge>
-                    <Text size="sm">{p.score} pts</Text>
-                  </Group>
-                ))}
-              </Stack>
-            </Card>
-            {/* Colonne centrale : carousel des dessins */}
-            <Card withBorder padding="md" radius="md" style={{ flex: 1, minWidth: 0, maxWidth: 500 }}>
-              <Title order={3} mb="md" ta="center">Dessins de la partie</Title>
-              {/* Carousel simple (custom) */}
-              <Carousel drawings={currentRoom.drawings} players={currentRoom.players} />
-            </Card>
-            {/* Colonne chat (placeholder) */}
-            <Card withBorder padding="md" radius="md" style={{ minWidth: 220, flex: '0 0 220px' }}>
-              <Title order={4} mb="sm">Chat</Title>
-              <Text size="sm" c="dimmed">L'historique du chat s'affichera ici.</Text>
-            </Card>
-          </Group>
-        </Stack>
-      )}
     </Stack>
       )}
 

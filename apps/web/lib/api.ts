@@ -122,3 +122,29 @@ export function confirmPublicFriendRequest(token: string, requesterUserId: strin
 export function removeFriend(token: string, otherUserId: string) {
   return request<{ removed: boolean }>(`/friends/${otherUserId}`, { method: 'DELETE', token });
 }
+
+// ================= Games =================
+export interface ApiArchivedGameDrawing {
+  turnIndex: number;
+  drawerId: string;
+  word: string;
+  filePath: string;
+  imageData?: string;
+}
+
+export interface ApiArchivedGame {
+  gameId: string;
+  roomId: string;
+  status: 'running' | 'ended';
+  totalRounds: number;
+  currentRound: number;
+  players: { playerId: string; pseudo: string; score: number }[];
+  drawings: ApiArchivedGameDrawing[];
+  messages: { at: number; type: 'guess' | 'correct' | 'system'; playerId?: string; text: string }[];
+  endedAt: string | null;
+  expiresAt: string | null;
+}
+
+export function getGame(gameId: string, token: string) {
+  return request<ApiArchivedGame>(`/games/${gameId}`, { method: 'GET', token });
+}

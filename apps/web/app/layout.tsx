@@ -5,6 +5,7 @@ import Header from '@/components/Header';
 
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
+import '@mantine/carousel/styles.css';
 import './globals.css';
 import EffectsOverlay from '@/components/EffectsOverlay';
 

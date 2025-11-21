@@ -54,11 +54,19 @@ export class Game {
 
   @Prop({ type: [GameMessage], default: [] })
   messages!: GameMessage[];
+
+  // Date de fin réelle (définie quand status passe à 'ended')
+  @Prop()
+  endedAt?: Date;
+
+  // Date d'expiration (TTL). Définie à la création (24h) puis prolongée à endedAt + 7j.
+  @Prop({ index: true })
+  expiresAt!: Date;
 }
 
 export const GamePlayerScoreSchema = SchemaFactory.createForClass(GamePlayerScore);
 export const GameDrawingSchema = SchemaFactory.createForClass(GameDrawing);
 export const GameMessageSchema = SchemaFactory.createForClass(GameMessage);
 export const GameSchema = SchemaFactory.createForClass(Game);
-// TTL index: suppression automatique du document après 7 jours
-GameSchema.index({ createdAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 7 });
+// TTL index basé sur expiresAt (expireAfterSeconds: 0 => expiration exacte à expiresAt)
+GameSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });

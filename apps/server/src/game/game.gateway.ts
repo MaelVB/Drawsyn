@@ -315,17 +315,22 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('drawing:submit')
   handleSubmitDrawing(@ConnectedSocket() client: Socket, @MessageBody() dto: SubmitDrawingDto) {
     const connection = this.connections.get(client.id);
+    console.log('[Gateway] 📸 drawing:submit received from', connection?.playerId, 'turnIndex:', dto.turnIndex);
     if (!connection || !connection.roomId || !connection.playerId) {
+      console.log('[Gateway] ❌ drawing:submit rejected - no auth');
       client.emit('auth:error', { message: 'Authentification requise' });
       return;
     }
     try {
+      console.log('[Gateway] ✅ Calling game.submitDrawing - imageData size:', dto.imageData?.length ?? 0);
       this.game.submitDrawing(connection.roomId, connection.playerId, {
         imageData: dto.imageData,
         word: dto.word,
         turnIndex: dto.turnIndex
       });
+      console.log('[Gateway] ✅ Drawing submitted successfully');
     } catch (error) {
+      console.log('[Gateway] ❌ Error submitting drawing:', (error as Error).message);
       client.emit('room:error', { message: (error as Error).message });
     }
   }
