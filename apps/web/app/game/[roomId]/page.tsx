@@ -16,7 +16,6 @@ import {
   Slider,
   SegmentedControl,
   Box,
-  Tooltip,
   Modal,
   PasswordInput,
   Tabs,
@@ -27,6 +26,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconInfoCircle, IconBrush, IconEraser, IconBucket, IconConfetti, IconDeviceTv, IconEye, IconMessageOff, IconPencil, IconAd } from '@tabler/icons-react';
+import PlayerTooltip, { ActiveEffect as PlayerActiveEffect } from '@/components/PlayerTooltip';
 import LobbySettings from '@/components/LobbySettings';
 import InventoryBar from '@/components/InventoryBar';
 import CrtOverlay from '@/components/CrtOverlay';
@@ -90,7 +90,6 @@ export default function GameRoomPage() {
       setPrimaryNotification: state.setPrimaryNotification
     })
   );
-  const [gameId, setGameId] = useState<string | undefined>();
 
   const [word, setWord] = useState<string | undefined>();
   const [guesses, setGuesses] = useState<GuessMessage[]>([]);
@@ -186,14 +185,6 @@ export default function GameRoomPage() {
     return map;
   }, [currentRoom]);
   const teamColors = ['blue', 'green', 'red', 'grape', 'teal', 'orange', 'violet', 'cyan', 'pink', 'lime'] as const;
-  // Nouveau : vrai si le joueur doit choisir un mot
-  const isChoosingWord = useMemo(() => {
-    if (!wordChoices || !currentRoom || !playerId) return false;
-    // On prend le dessinateur attendu pour le round à venir
-    const idx = currentRoom.currentRound ?? 0;
-    const drawerId = currentRoom.drawerOrder?.[idx] || null;
-    return drawerId === playerId;
-  }, [wordChoices, currentRoom, playerId]);
 
   // Affiche la modal d'attente pour les non-dessinateurs quand le dessinateur choisit un mot
   const showWaitingForWordModal = useMemo(() => {
@@ -671,11 +662,10 @@ export default function GameRoomPage() {
   socket.on('round:choose', handleRoundChoose);
     socket.on('round:ended', handleRoundEnded);
     socket.on('notification:primary', handlePrimaryNotification);
-    socket.on('game:info', (payload: { gameId: string }) => {
-      setGameId(payload.gameId);
+    socket.on('game:info', () => {
+      // Réservé pour usage futur
     });
     socket.on('game:ended', (payload: { totalRounds: number; scores: any[]; drawings?: any[]; gameId?: string }) => {
-      if (payload.gameId) setGameId(payload.gameId);
       // Fusionner les scores dans currentRoom ou créer un état minimal s'il a disparu
       setCurrentRoom((prev) => {
         if (!prev) {
@@ -692,8 +682,7 @@ export default function GameRoomPage() {
             createdAt: Date.now(),
             drawings: payload.drawings ?? [],
             totalRounds: payload.totalRounds,
-            currentRound: payload.totalRounds,
-            gameId: payload.gameId
+            currentRound: payload.totalRounds
           } as any; // cast pour conserver compatibilité
         }
         const mergedPlayers = { ...prev.players };
@@ -709,8 +698,7 @@ export default function GameRoomPage() {
           ...prev,
           status: 'ended',
           drawings: payload.drawings ?? prev.drawings,
-          players: mergedPlayers,
-          gameId: payload.gameId ?? (prev as any).gameId
+          players: mergedPlayers
         };
       });
       setGuesses((messages) => [
@@ -1425,8 +1413,40 @@ export default function GameRoomPage() {
                   : itemTargeting?.category === 'drawing'
                   ? '0 0 0 2px rgba(255, 146, 43, 0.35)'
                   : '0 0 0 2px rgba(76, 110, 245, 0.35)';
+                const effectsForPlayer: PlayerActiveEffect[] = (playerEffects[player.id] || []).map(e => ({...e}));
+                const teamBadgeEl = (() => { // aperçu rapide dans la ligne (le tooltip aura sa propre logique)
+                  const teamsEnabled = (currentRoom?.teamCount ?? 0) > 1;
+                  if (!teamsEnabled) return null;
+                  const tId = player.teamId;
+                  const idx = tId ? teamIndexById[tId] : undefined;
+                  const isKnown = Boolean(
+                    tId && (
+                      player.id === playerId ||
+                      (viewerTeamId && tId === viewerTeamId) ||
+                      knownTeamPlayerIds.has(player.id)
+                    )
+                  );
+                  if (isKnown && idx) {
+                    const color = teamColors[(idx - 1) % teamColors.length];
+                    return <Badge size="sm" variant="filled" color={color}>T{idx}</Badge>;
+                  }
+                  return <Badge size="sm" variant="light" color="gray">?</Badge>;
+                })();
                 return (
-                  <Stack key={player.id} gap="0px" align="center">
+                  <PlayerTooltip
+                    key={player.id}
+                    player={player}
+                    room={currentRoom}
+                    roundDrawerId={round?.drawerId}
+                    effects={effectsForPlayer}
+                    isSelf={player.id === playerId}
+                    viewerTeamId={viewerTeamId}
+                    knownTeamPlayerIds={knownTeamPlayerIds}
+                    teamIndexById={teamIndexById}
+                    teamColors={teamColors}
+                    drawAssistUntil={drawAssistUntil}
+                  >
+                  <Stack gap="0px" align="center">
                     <Paper
                       bg={altMessageBg}
                       p={(() => {
@@ -1456,35 +1476,36 @@ export default function GameRoomPage() {
                           {orderNumber && (
                             <Text size="sm" c="dimmed" fw={500}>{orderNumber}.</Text>
                           )}
-                          <Tooltip label={player.name} position="top" withArrow>
-                            <Text
-                              size="sm"
-                              fw={playerId === player.id ? 700 : 500}
-                              style={{
-                                textDecoration:
-                                  playerId && player.id !== playerId && currentRoom?.players[playerId]?.teamId && player.teamId && currentRoom?.players[playerId]?.teamId === player.teamId
-                                    ? 'underline'
-                                    : 'none',
-                                cursor: user && player.id !== user.id ? 'pointer' : 'default',
-                                maxWidth: 130,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                display: 'inline-block'
-                              }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handlePlayerClick(player);
-                              }}
-                            >
-                              {player.name}
-                            </Text>
-                          </Tooltip>
+                          <Text
+                            size="sm"
+                            fw={playerId === player.id ? 700 : 500}
+                            style={{
+                              textDecoration:
+                                playerId && player.id !== playerId && currentRoom?.players[playerId]?.teamId && player.teamId && currentRoom?.players[playerId]?.teamId === player.teamId
+                                  ? 'underline'
+                                  : 'none',
+                              cursor: user && player.id !== user.id ? 'pointer' : 'default',
+                              maxWidth: 130,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              display: 'inline-block'
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePlayerClick(player);
+                            }}
+                          >
+                            {player.name}
+                          </Text>
                           {!player.connected && <Text size="xs" c="dimmed">(déconnecté)</Text>}
                         </Group>
 
                         <Group gap={4} align="center">
                           {round?.drawerId === player.id && <IconBrush size={16} style={{ display: "block", transform: "translateY(1px)" }} />}
+                          {player.id === playerId && drawAssistUntil && drawAssistUntil > Date.now() && round?.drawerId !== player.id && (
+                            <Badge size="xs" color="orange" variant="light" style={{ display: "block", transform: "translateY(0.5px)" }}>Assist.</Badge>
+                          )}
                           {currentRoom.hostId === player.id && (
                             <Badge size="xs" color="yellow" variant="light" style={{ display: "block", transform: "translateY(0.5px)" }}>Hôte</Badge>
                           )}
@@ -1512,52 +1533,29 @@ export default function GameRoomPage() {
                     >
                       <Flex>
                         <Group gap={4} align="center">
-                          {/* Badge d'équipe: T1/T2/... si connu, sinon ? */}
-                          {(() => {
-                            const teamsEnabled = (currentRoom?.teamCount ?? 0) > 1;
-                            if (!teamsEnabled) return null;
-                            const tId = player.teamId;
-                            const idx = tId ? teamIndexById[tId] : undefined;
-                            const isKnown = Boolean(
-                              tId && (
-                                player.id === playerId ||
-                                (viewerTeamId && tId === viewerTeamId) ||
-                                knownTeamPlayerIds.has(player.id)
-                              )
-                            );
-                            if (isKnown && idx) {
-                              const color = teamColors[(idx - 1) % teamColors.length];
-                              return (
-                                <Badge size="sm" variant="filled" color={color} title={`Équipe T${idx}`}>
-                                  T{idx}
-                                </Badge>
-                              );
-                            }
-                            return (
-                              <Badge size="sm" variant="light" color="gray" title="Équipe inconnue">?</Badge>
-                            );
-                          })()}
+                          {/* Badge d'équipe aperçu rapide */}
+                          {teamBadgeEl}
                           <Divider orientation="vertical" color='#424242' />
                         </Group>
                         <Group gap={4} align="center" flex={1} px={4}>
-                          {/* Afficher jusqu'à 5 icônes d'effets actifs */}
-                          {(playerEffects[player.id] || []).slice(0, 3).map((effect) => (
-                            <Tooltip key={effect.effectId} label={`Effet actif`} position="top" withArrow>
-                              <Badge
-                                size="sm"
-                                radius="sm"
-                                variant="filled"
-                                color={effect.color}
-                                style={{
-                                  padding: '2px 4px',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center'
-                                }}
-                              >
-                                {effect.icon}
-                              </Badge>
-                            </Tooltip>
+                          {/* Effets actifs (aperçu 3 max, sans timer) */}
+                          {effectsForPlayer.slice(0, 3).map((effect) => (
+                            <Badge
+                              key={effect.effectId}
+                              size="sm"
+                              radius="sm"
+                              variant="filled"
+                              color={effect.color}
+                              style={{
+                                padding: '2px 4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                              }}
+                              title="Effet actif"
+                            >
+                              {effect.icon}
+                            </Badge>
                           ))}
                         </Group>
                         <Group gap={4} align="center">
@@ -1569,6 +1567,7 @@ export default function GameRoomPage() {
                       </Flex>
                     </Paper>
                   </Stack>
+                  </PlayerTooltip>
                 );
               })}
           </Stack>

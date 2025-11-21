@@ -27,16 +27,16 @@ import {
 import { notifications } from '@mantine/notifications';
 import { getSocket } from '@/lib/socket';
 import { useGameStore } from '@/stores/game-store';
-import type { PlayerItem, PlayerState } from '@/stores/game-store';
+import type { PlayerItem, PlayerState, ItemId } from '@/stores/game-store';
 
 type ItemCategory = 'visual' | 'support' | 'block' | 'drawing';
 
 interface InventoryBarProps {
   onRequestImprovisation?: (instanceId: string) => void;
   // Ciblage générique d'un item qui nécessite une cible
-  onRequestTargeting?: (payload: { instanceId: string; itemId: string; category: ItemCategory }) => void;
+  onRequestTargeting?: (payload: { instanceId: string; itemId: ItemId; category: ItemCategory }) => void;
   // Confirmation d'utilisation pour les items sans cible
-  onRequestConfirmUse?: (payload: { instanceId: string; itemId: string }) => void;
+  onRequestConfirmUse?: (payload: { instanceId: string; itemId: ItemId }) => void;
   isTargeting?: boolean;
   activeTargetInstanceId?: string | null;
   activeTargetCategory?: ItemCategory;
@@ -201,7 +201,7 @@ export default function InventoryBar({
     }
   };
 
-  const handleUseItem = (instanceId: string, itemId: string) => {
+  const handleUseItem = (instanceId: string, itemId: ItemId) => {
     if (itemId === 'improvisation') {
       // On délègue la capture du mot à la modal de choix (page), uniquement si elle est ouverte
       if (onRequestImprovisation && isDrawer && currentRoom?.status === 'choosing') {
