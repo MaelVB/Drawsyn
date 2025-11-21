@@ -30,6 +30,7 @@ import PlayerTooltip, { ActiveEffect as PlayerActiveEffect } from '@/components/
 import LobbySettings from '@/components/LobbySettings';
 import InventoryBar from '@/components/InventoryBar';
 import CrtOverlay from '@/components/CrtOverlay';
+import Carousel from './Carousel';
 
 import { getSocket } from '@/lib/socket';
 import { register, login, sendPublicFriendRequest } from '@/lib/api';
@@ -2069,35 +2070,61 @@ export default function GameRoomPage() {
           </Group>
         </Card>
       </Group>
-      {/* Section finale: afficher les dessins à la fin du jeu */}
+      {/* Résultats fin de partie : structure 3 colonnes + classement + carousel */}
       {currentRoom?.status === 'ended' && currentRoom.drawings && currentRoom.drawings.length > 0 && (
-        <Card withBorder padding="md" radius="md">
-          <Title order={3} mb="md">Dessins de la partie</Title>
-          <Group wrap="wrap" gap="md">
-            {currentRoom.drawings.sort((a,b) => a.turnIndex - b.turnIndex).map(d => (
-              <Stack key={d.turnIndex} gap={4} style={{ width: 180 }}>
-                <Box
-                  style={{
-                    width: '100%',
-                    aspectRatio: '3/2',
-                    backgroundColor: '#444',
-                    overflow: 'hidden',
-                    borderRadius: 8,
-                    border: '1px solid var(--mantine-color-gray-4)'
-                  }}
-                >
-                  <img
-                    src={d.imageData}
-                    alt={d.word}
-                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                  />
-                </Box>
-                <Text size="sm" fw={600} ta="center">{d.word}</Text>
-                <Text size="xs" c="dimmed" ta="center">par {currentRoom.players[d.drawerId]?.name || 'Inconnu'}</Text>
+        <Stack gap="md">
+          {/* Classement des équipes */}
+          <Card withBorder padding="md" radius="md" style={{ maxWidth: 700, margin: '0 auto' }}>
+            <Title order={2} mb="md" ta="center">Classement des équipes</Title>
+            {/* Classement dynamique par score d'équipe */}
+            <Group justify="center" gap="lg">
+              {(() => {
+                // Regrouper les joueurs par équipe et sommer les scores
+                const teams: Record<string, { name: string, score: number, players: string[] }> = {};
+                Object.values(currentRoom.players).forEach(p => {
+                  const team = p.teamId || 'solo';
+                  if (!teams[team]) teams[team] = { name: team, score: 0, players: [] };
+                  teams[team].score += p.score || 0;
+                  teams[team].players.push(p.name);
+                });
+                const sortedTeams = Object.entries(teams).sort((a, b) => b[1].score - a[1].score);
+                return sortedTeams.map(([teamId, team], idx) => (
+                  <Stack key={teamId} align="center" gap={2}>
+                    <Badge color={idx === 0 ? 'yellow' : idx === 1 ? 'gray' : 'dark'} size="lg">{team.name}</Badge>
+                    <Text fw={700} size="lg">{team.score} pts</Text>
+                    <Text size="xs" c="dimmed">{team.players.join(', ')}</Text>
+                  </Stack>
+                ));
+              })()}
+            </Group>
+          </Card>
+          {/* Structure 3 colonnes : joueurs | dessins (carousel) | chat */}
+          <Group align="flex-start" gap="md" wrap="nowrap" style={{ width: '100%', maxWidth: 1200, margin: '0 auto' }}>
+            {/* Colonne joueurs */}
+            <Card withBorder padding="md" radius="md" style={{ minWidth: 200, flex: '0 0 200px' }}>
+              <Title order={4} mb="sm">Joueurs</Title>
+              <Stack gap={4}>
+                {Object.values(currentRoom.players).map(p => (
+                  <Group key={p.id} gap={6}>
+                    <Badge color={p.connected ? 'teal' : 'gray'}>{p.name}</Badge>
+                    <Text size="sm">{p.score} pts</Text>
+                  </Group>
+                ))}
               </Stack>
-            ))}
+            </Card>
+            {/* Colonne centrale : carousel des dessins */}
+            <Card withBorder padding="md" radius="md" style={{ flex: 1, minWidth: 0, maxWidth: 500 }}>
+              <Title order={3} mb="md" ta="center">Dessins de la partie</Title>
+              {/* Carousel simple (custom) */}
+              <Carousel drawings={currentRoom.drawings} players={currentRoom.players} />
+            </Card>
+            {/* Colonne chat (placeholder) */}
+            <Card withBorder padding="md" radius="md" style={{ minWidth: 220, flex: '0 0 220px' }}>
+              <Title order={4} mb="sm">Chat</Title>
+              <Text size="sm" c="dimmed">L'historique du chat s'affichera ici.</Text>
+            </Card>
           </Group>
-        </Card>
+        </Stack>
       )}
     </Stack>
       )}
