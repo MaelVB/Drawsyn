@@ -27,7 +27,7 @@ export class UsersService {
 
   async updateById(
     id: string,
-    update: Partial<Pick<User, 'pseudo' | 'twitchUrl' | 'allowPublicFriendRequests'>>
+    update: Partial<Pick<User, 'pseudo' | 'twitchUrl' | 'allowPublicFriendRequests' | 'colorPalettes' | 'defaultColorPaletteId'>>
   ) {
     return this.model
       .findByIdAndUpdate(

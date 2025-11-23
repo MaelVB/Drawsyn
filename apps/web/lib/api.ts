@@ -7,12 +7,20 @@ export interface ApiAuthResponse {
   };
 }
 
+export interface ColorPalette {
+  id: string;
+  name: string;
+  colors: string[];
+}
+
 export interface ApiUser {
   id: string;
   pseudo: string;
   email: string;
   twitchUrl?: string | null;
   allowPublicFriendRequests?: boolean;
+  colorPalettes?: ColorPalette[];
+  defaultColorPaletteId?: string;
 }
 
 export interface ApiFriendRelation {
@@ -81,7 +89,13 @@ export function getCurrentUser(token: string) {
 
 export function updateCurrentUser(
   token: string,
-  payload: { pseudo?: string; twitchUrl?: string | null; allowPublicFriendRequests?: boolean }
+  payload: { 
+    pseudo?: string; 
+    twitchUrl?: string | null; 
+    allowPublicFriendRequests?: boolean;
+    colorPalettes?: ColorPalette[];
+    defaultColorPaletteId?: string;
+  }
 ) {
   // If twitchUrl is empty string, send null to clear
   const body: Record<string, unknown> = {};
@@ -90,6 +104,12 @@ export function updateCurrentUser(
   else if (typeof payload.twitchUrl === 'string') body.twitchUrl = payload.twitchUrl;
   if (typeof payload.allowPublicFriendRequests === 'boolean') {
     body.allowPublicFriendRequests = payload.allowPublicFriendRequests;
+  }
+  if (Array.isArray(payload.colorPalettes)) {
+    body.colorPalettes = payload.colorPalettes;
+  }
+  if (typeof payload.defaultColorPaletteId === 'string') {
+    body.defaultColorPaletteId = payload.defaultColorPaletteId;
   }
   return request<ApiUser>('/users/me', { method: 'PUT', body, token });
 }

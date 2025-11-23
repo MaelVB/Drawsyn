@@ -7,6 +7,7 @@ import { IconInfoCircle, IconEye, IconTrash, IconRefresh } from '@tabler/icons-r
 
 import { getCurrentUser, updateCurrentUser, getFriends, connectFriendByEmail, confirmPublicFriendRequest, removeFriend } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth-store';
+import ColorPaletteManager, { ColorPalette } from '@/components/ColorPaletteManager';
 
 export default function AccountPage() {
   const router = useRouter();
@@ -24,6 +25,11 @@ export default function AccountPage() {
   const [email, setEmail] = useState('');
   const [pseudo, setPseudo] = useState('');
   const [twitchUrl, setTwitchUrl] = useState<string>('');
+
+  // Palettes de couleurs
+  const [colorPalettes, setColorPalettes] = useState<ColorPalette[]>([]);
+  const [defaultColorPaletteId, setDefaultColorPaletteId] = useState('main');
+  const [_palettesSaving, setPalettesSaving] = useState(false);
 
   // Amis
   const [allowPublicFriendRequests, setAllowPublicFriendRequests] = useState(true);
@@ -61,6 +67,8 @@ export default function AccountPage() {
         setPseudo(me.pseudo);
         setTwitchUrl(me.twitchUrl ?? '');
         setAllowPublicFriendRequests(me.allowPublicFriendRequests ?? true);
+        setColorPalettes(me.colorPalettes ?? []);
+        setDefaultColorPaletteId(me.defaultColorPaletteId ?? 'main');
 
         const relations = await getFriends(token);
         if (cancelled) return;
@@ -191,6 +199,7 @@ export default function AccountPage() {
       <Tabs defaultValue="profile">
         <Tabs.List>
           <Tabs.Tab value="profile">Profil</Tabs.Tab>
+          <Tabs.Tab value="palettes">Palettes</Tabs.Tab>
           <Tabs.Tab value="friends">Amis</Tabs.Tab>
         </Tabs.List>
 
@@ -229,6 +238,28 @@ export default function AccountPage() {
               )}
             </Stack>
           </Card>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="palettes" pt="md">
+          <ColorPaletteManager
+            palettes={colorPalettes}
+            defaultPaletteId={defaultColorPaletteId}
+            onChange={async (newPalettes, newDefaultId) => {
+              try {
+                setPalettesSaving(true);
+                await updateCurrentUser(token!, {
+                  colorPalettes: newPalettes,
+                  defaultColorPaletteId: newDefaultId
+                });
+                setColorPalettes(newPalettes);
+                setDefaultColorPaletteId(newDefaultId);
+              } catch (e) {
+                setError((e as Error).message);
+              } finally {
+                setPalettesSaving(false);
+              }
+            }}
+          />
         </Tabs.Panel>
 
         <Tabs.Panel value="friends" pt="md">

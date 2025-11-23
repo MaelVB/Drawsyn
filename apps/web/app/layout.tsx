@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { ColorSchemeScript } from '@mantine/core';
 import { Providers } from '@/components/providers';
 import Header from '@/components/Header';
+import Footer from '@/components/Footer';
 
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
@@ -10,8 +11,8 @@ import './globals.css';
 import EffectsOverlay from '@/components/EffectsOverlay';
 
 export const metadata: Metadata = {
-  title: 'Drawsyn - Realtime Drawing Game',
-  description: 'Skribbl.io inspired realtime drawing battles built with Nest and Next.'
+  title: 'Drawsyn - Real-time Team Drawing Game',
+  description: 'Real-time drawing battles with teams and special effects'
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -20,10 +21,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <ColorSchemeScript defaultColorScheme="dark" />
       </head>
-      <body>
+      <body style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
         <Providers>
           <Header />
-          {children}
+          <main style={{ flex: 1 }}>
+            {children}
+          </main>
+          <Footer />
         </Providers>
         <EffectsOverlay />
       </body>

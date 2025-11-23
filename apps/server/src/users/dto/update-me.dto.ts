@@ -1,4 +1,17 @@
-import { IsBoolean, IsOptional, IsString, IsUrl, Length, Matches } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, IsUrl, Length, Matches, IsArray, ValidateNested, IsHexColor } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class ColorPaletteDto {
+  @IsString()
+  id!: string;
+
+  @IsString()
+  name!: string;
+
+  @IsArray()
+  @IsHexColor({ each: true })
+  colors!: string[];
+}
 
 export class UpdateMeDto {
   @IsOptional()
@@ -17,4 +30,14 @@ export class UpdateMeDto {
   @IsOptional()
   @IsBoolean()
   allowPublicFriendRequests?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ColorPaletteDto)
+  colorPalettes?: ColorPaletteDto[];
+
+  @IsOptional()
+  @IsString()
+  defaultColorPaletteId?: string;
 }

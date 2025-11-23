@@ -31,7 +31,7 @@ import LobbySettings from '@/components/LobbySettings';
 import InventoryBar from '@/components/InventoryBar';
 import CrtOverlay from '@/components/CrtOverlay';
 import Carousel from './Carousel';
-import { getGame, ApiArchivedGame } from '@/lib/api';
+import { getGame, ApiArchivedGame, getCurrentUser } from '@/lib/api';
 
 import { getSocket } from '@/lib/socket';
 import { register, login, sendPublicFriendRequest } from '@/lib/api';
@@ -39,6 +39,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useGameStore } from '@/stores/game-store';
 import type { PlayerState, PrimaryNotification, ItemId } from '@/stores/game-store';
 import { useEffectsStore } from '@/stores/effects-store';
+import { getPalette, organizePaletteIntoColumns, type ColorPalette } from '@/lib/color-palettes';
 
 interface GuessMessage {
   playerId: string;
@@ -133,6 +134,14 @@ export default function GameRoomPage() {
   const [brushType, setBrushType] = useState<'brush' | 'eraser' | 'bucket'>('brush');
   // Position du curseur personnalisé (en px relatifs au canvas, non scalés pour le dessin)
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number; visible: boolean }>({ x: 0, y: 0, visible: false });
+  
+  // Palette de couleurs de l'utilisateur
+  const [userColorPalettes, setUserColorPalettes] = useState<ColorPalette[]>([]);
+  const [defaultPaletteId, setDefaultPaletteId] = useState<string>('main');
+  
+  // Calculer la palette actuelle et organiser les couleurs en colonnes
+  const currentPalette = useMemo(() => getPalette(defaultPaletteId, userColorPalettes), [defaultPaletteId, userColorPalettes]);
+  const paletteColumns = useMemo(() => organizePaletteIntoColumns(currentPalette.colors, 3), [currentPalette]);
 
   // États pour la modal d'authentification
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -250,6 +259,29 @@ export default function GameRoomPage() {
     ctx.stroke();
     ctx.restore();
   }, []);
+
+  // Charger les palettes de couleurs de l'utilisateur
+  useEffect(() => {
+    if (!token || !hydrated) return;
+    
+    let cancelled = false;
+    
+    (async () => {
+      try {
+        const me = await getCurrentUser(token);
+        if (cancelled) return;
+        setUserColorPalettes(me.colorPalettes ?? []);
+        setDefaultPaletteId(me.defaultColorPaletteId ?? 'main');
+      } catch (e) {
+        console.error('[GameRoom] Erreur lors du chargement des palettes:', e);
+        // En cas d'erreur, on garde les valeurs par défaut
+      }
+    })();
+    
+    return () => {
+      cancelled = true;
+    };
+  }, [token, hydrated]);
 
   useEffect(() => {
     // N'installer les listeners que si l'utilisateur est authentifié
@@ -1661,7 +1693,7 @@ export default function GameRoomPage() {
         <Stack gap="sm" style={{ flexShrink: 0 }}>
           {currentRoom && currentRoom.status === 'ended' && currentRoom.drawings && currentRoom.drawings.length > 0 ? (
             /* Affichage du carousel des dessins à la fin */
-            <Card withBorder padding="md" radius="md" ref={centerCardRef}>
+            <Card withBorder padding="md" radius="md" ref={centerCardRef} style={{ width: 720 }}>
               <Title order={3} mb="md" ta="center">🎨 Dessins de la partie</Title>
               <Divider my="md" />
               <Carousel drawings={currentRoom.drawings} players={currentRoom.players} />
@@ -1780,238 +1812,24 @@ export default function GameRoomPage() {
                       />
                       <Box mt="32px">
                         <Flex gap={4}>
-                          {/* Colonne 1: Blanc, Gris, Noir */}
-                          <Stack gap={4}>
-                            <Box
-                              onClick={() => setBrushColor('#FFFFFF')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#FFFFFF',
-                                border: '1px solid #ccc',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                            <Box
-                              onClick={() => setBrushColor('#808080')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#808080',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                            <Box
-                              onClick={() => setBrushColor('#000000')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#000000',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                          </Stack>
-                          {/* Colonne 2: Rouge */}
-                          <Stack gap={4}>
-                            <Box
-                              onClick={() => setBrushColor('#FF0000')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#FF0000',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                            <Box
-                              onClick={() => setBrushColor('#CC0000')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#CC0000',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                            <Box
-                              onClick={() => setBrushColor('#8B0000')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#8B0000',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                          </Stack>
-                          {/* Colonne 3: Vert */}
-                          <Stack gap={4}>
-                            <Box
-                              onClick={() => setBrushColor('#00FF00')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#00FF00',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                            <Box
-                              onClick={() => setBrushColor('#00CC00')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#00CC00',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                            <Box
-                              onClick={() => setBrushColor('#006400')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#006400',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                          </Stack>
-                          {/* Colonne 4: Bleu */}
-                          <Stack gap={4}>
-                            <Box
-                              onClick={() => setBrushColor('#0000FF')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#0000FF',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                            <Box
-                              onClick={() => setBrushColor('#0000CC')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#0000CC',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                            <Box
-                              onClick={() => setBrushColor('#00008B')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#00008B',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                          </Stack>
-                          {/* Colonne 5: Cyan */}
-                          <Stack gap={4}>
-                            <Box
-                              onClick={() => setBrushColor('#00FFFF')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#00FFFF',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                            <Box
-                              onClick={() => setBrushColor('#00CCCC')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#00CCCC',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                            <Box
-                              onClick={() => setBrushColor('#008B8B')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#008B8B',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                          </Stack>
-                          {/* Colonne 6: Magenta */}
-                          <Stack gap={4}>
-                            <Box
-                              onClick={() => setBrushColor('#FF00FF')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#FF00FF',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                            <Box
-                              onClick={() => setBrushColor('#CC00CC')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#CC00CC',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                            <Box
-                              onClick={() => setBrushColor('#8B008B')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#8B008B',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                          </Stack>
-                          {/* Colonne 7: Jaune */}
-                          <Stack gap={4}>
-                            <Box
-                              onClick={() => setBrushColor('#FFFF00')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#FFFF00',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                            <Box
-                              onClick={() => setBrushColor('#CCCC00')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#CCCC00',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                            <Box
-                              onClick={() => setBrushColor('#8B8B00')}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                backgroundColor: '#8B8B00',
-                                cursor: 'pointer',
-                                borderRadius: 4
-                              }}
-                            />
-                          </Stack>
+                          {paletteColumns.map((columnColors, colIdx) => (
+                            <Stack key={colIdx} gap={4}>
+                              {columnColors.map((color, rowIdx) => (
+                                <Box
+                                  key={rowIdx}
+                                  onClick={() => setBrushColor(color)}
+                                  style={{
+                                    width: 24,
+                                    height: 24,
+                                    backgroundColor: color,
+                                    border: color.toLowerCase() === '#ffffff' ? '1px solid #ccc' : 'none',
+                                    cursor: 'pointer',
+                                    borderRadius: 4
+                                  }}
+                                />
+                              ))}
+                            </Stack>
+                          ))}
                         </Flex>
                       </Box>
                     </Box>

@@ -26,8 +26,7 @@ export default function DrawingsCarousel({ drawings, players }: { drawings: Draw
             <Box style={{ width: 320, aspectRatio: '3/2', background: '#444', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--mantine-color-gray-4)' }}>
               <img src={d.imageData} alt={d.word} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
             </Box>
-            <Text size="lg" fw={700} ta="center">{d.word}</Text>
-            <Text size="sm" c="dimmed" ta="center">par {players[d.drawerId]?.name || 'Inconnu'}</Text>
+            <Text size="sm" ta="center">{players[d.drawerId]?.name || 'Inconnu'} - {d.word}</Text>
           </Stack>
         </Carousel.Slide>
       ))}

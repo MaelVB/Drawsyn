@@ -24,7 +24,9 @@ export class UsersController {
       pseudo: dbUser.pseudo,
       email: dbUser.email,
       twitchUrl: dbUser.twitchUrl ?? null,
-      allowPublicFriendRequests: dbUser.allowPublicFriendRequests ?? true
+      allowPublicFriendRequests: dbUser.allowPublicFriendRequests ?? true,
+      colorPalettes: dbUser.colorPalettes ?? [],
+      defaultColorPaletteId: dbUser.defaultColorPaletteId ?? 'main'
     };
   }
 
@@ -49,7 +51,9 @@ export class UsersController {
       pseudo: updated.pseudo,
       email: updated.email,
       twitchUrl: updated.twitchUrl ?? null,
-      allowPublicFriendRequests: updated.allowPublicFriendRequests ?? true
+      allowPublicFriendRequests: updated.allowPublicFriendRequests ?? true,
+      colorPalettes: updated.colorPalettes ?? [],
+      defaultColorPaletteId: updated.defaultColorPaletteId ?? 'main'
     };
   }
 }
